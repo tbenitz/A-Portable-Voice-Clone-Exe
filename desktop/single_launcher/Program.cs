@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -91,6 +92,97 @@ static class Program
         }
     }
 
+
+    // For compact browser-built EXEs, the launcher contains only its voice.
+    // The large frozen Pocket runtime is downloaded on Windows once and cached.
+    // The GitHub API supplies a SHA-256 digest; the binary MUST match it.
+    static string FindOrDownloadRuntime(string root)
+    {
+        foreach (var folder in Directory.EnumerateDirectories(root, "runtime-*"))
+        {
+            var found = Path.Combine(folder, "voice_ui.exe");
+            if (File.Exists(found)) return found;
+        }
+
+        MessageBoxW(IntPtr.Zero,
+            "First launch: Pocket Voice will download its Windows speech runtime (about 205 MB) from GitHub Releases. " +
+            "A separate Python install is NOT required.\n\nAn internet connection is needed this first time. " +
+            "The runtime is cached for future offline use.",
+            "Pocket Voice - First Launch", 0x40);
+        const string api = "https://api.github.com/repos/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest";
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true });
+        http.Timeout = TimeSpan.FromMinutes(20);
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("PocketVoiceStudio/1.0");
+        using var releaseResponse = http.GetAsync(api).GetAwaiter().GetResult();
+        releaseResponse.EnsureSuccessStatusCode();
+        string json = releaseResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        using var document = JsonDocument.Parse(json);
+        string? assetUrl = null;
+        string? assetDigest = null;
+        long assetSize = 0;
+        foreach (var asset in document.RootElement.GetProperty("assets").EnumerateArray())
+        {
+            if (!asset.TryGetProperty("name", out var n) ||
+                n.GetString() != "SingleVoice-Base.exe") continue;
+            assetUrl = asset.GetProperty("browser_download_url").GetString();
+            assetDigest = asset.GetProperty("digest").GetString();
+            assetSize = asset.GetProperty("size").GetInt64();
+            break;
+        }
+        if (assetUrl is null ||
+            !assetUrl.StartsWith("https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/releases/download/", StringComparison.Ordinal) ||
+            assetDigest is null || !assetDigest.StartsWith("sha256:", StringComparison.Ordinal) ||
+            assetDigest.Length != 71 || assetSize < 1_000_000 || assetSize > 500_000_000)
+            throw new InvalidDataException("GitHub release metadata for Pocket TTS is invalid.");
+        string expectedDigest = assetDigest["sha256:".Length..].ToUpperInvariant();
+        foreach (char ch in expectedDigest) if (!Uri.IsHexDigit(ch))
+            throw new InvalidDataException("Engine digest contains non-hex characters.");
+
+        string downloaded = Path.Combine(root, "engine-" + expectedDigest[..16] + ".exe");
+        if (!File.Exists(downloaded) ||
+            !Convert.ToHexString(SHA256.HashData(File.OpenRead(downloaded))).Equals(expectedDigest, StringComparison.Ordinal))
+        {
+            // Incomplete downloads never replace a validated cached file.
+            string temporary = downloaded + ".part-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                using var binaryResponse = http.GetAsync(assetUrl, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+                binaryResponse.EnsureSuccessStatusCode();
+                using var incoming = binaryResponse.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+                using (var target = File.Create(temporary))
+                {
+                    byte[] block = new byte[1024 * 1024];
+                    long total = 0;
+                    while (true)
+                    {
+                        int n = incoming.Read(block, 0, block.Length);
+                        if (n == 0) break;
+                        total += n;
+                        if (total > 500_000_000) throw new InvalidDataException("Runtime exceeds download safety limit.");
+                        target.Write(block, 0, n);
+                    }
+                }
+                if (new FileInfo(temporary).Length != assetSize)
+                    throw new InvalidDataException("Runtime download was truncated.");
+                using (var check = File.OpenRead(temporary))
+                    if (!Convert.ToHexString(SHA256.HashData(check)).Equals(expectedDigest, StringComparison.Ordinal))
+                        throw new InvalidDataException("Runtime SHA-256 verification failed.");
+                File.Move(temporary, downloaded, overwrite: true);
+            }
+            finally { try { File.Delete(temporary); } catch { } }
+        }
+
+        using var stream = File.Open(downloaded, FileMode.Open, FileAccess.Read, FileShare.Read);
+        long end = stream.Length;
+        if (!ReadTrailer(stream, ref end, BundleMarker, out var start, out var length) ||
+            length < 1_000_000)
+            throw new InvalidDataException("Downloaded runtime does not contain a valid Pocket bundle.");
+        stream.Position = start;
+        if (stream.ReadByte() != 'P' || stream.ReadByte() != 'K')
+            throw new InvalidDataException("Downloaded runtime ZIP is invalid.");
+        return ExtractEngine(stream, start, length, root);
+    }
+
     static int VerifyOnly()
     {
         try
@@ -99,8 +191,9 @@ static class Program
             long end = fs.Length;
             if (ReadTrailer(fs, ref end, ProfileMarker, out var profileAt, out var profileLength))
                 if (profileLength < 2 || profileLength > 8_000_000) return 41;
+            // Both the large bundled EXE and the tiny browser starter are valid.
             if (!ReadTrailer(fs, ref end, BundleMarker, out long bundleAt, out long bundleLength))
-                return 42;
+                return 0;
             if (bundleLength < 1_000_000) return 43;
             fs.Position = bundleAt;
             if (fs.ReadByte() != 'P' || fs.ReadByte() != 'K') return 44;
@@ -130,15 +223,15 @@ static class Program
             byte[] profileBytes = new byte[checked((int)profileLen)];
             fs.Position = profileAt;
             fs.ReadExactly(profileBytes);
-            if (!ReadTrailer(fs, ref end, BundleMarker, out long runtimeAt, out long runtimeLen))
-                throw new InvalidDataException("Pocket voice runtime not found in EXE.");
-            if (runtimeLen < 1_000_000)
+            bool bundled = ReadTrailer(fs, ref end, BundleMarker, out long runtimeAt, out long runtimeLen);
+            if (bundled && runtimeLen < 1_000_000)
                 throw new InvalidDataException("Pocket voice runtime bundle is incomplete.");
 
             var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                                     "PortableVoiceClone", "SingleRuntime");
             Directory.CreateDirectory(root);
-            string engine = ExtractEngine(fs, runtimeAt, runtimeLen, root);
+            string engine = bundled ? ExtractEngine(fs, runtimeAt, runtimeLen, root)
+                                    : FindOrDownloadRuntime(root);
             using var document = JsonDocument.Parse(profileBytes);
             var data = document.RootElement;
             if (!data.TryGetProperty("engine", out var mode) || mode.GetString() != "pocket")
