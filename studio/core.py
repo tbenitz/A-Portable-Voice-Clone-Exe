@@ -26,7 +26,8 @@ import numpy as np
 import soundfile as sf
 
 from .upstream_reader import (
-    MODEL_REPO, MODEL_REVISION, ensure_public_models, language_folder, split_text
+    MODEL_REPO, MODEL_REVISION, MODEL_FILES, ensure_public_models,
+    language_folder, model_file_names, split_text
 )
 
 PRESETS = {
@@ -122,7 +123,8 @@ def convert_audio(source: Path, dest: Path, sample_rate=24000, channels=1, start
     args += ["-i", str(source)]
     if duration is not None:
         args += ["-t", f"{float(duration):.3f}"]
-    filters = ["highpass=f=75", "lowpass=f=9800"]
+    filters = ["highpass=f=75", "lowpass=f=9800",
+               "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-42dB:stop_periods=-1:stop_duration=0.4:stop_threshold=-42dB"]
     if clarity:
         filters.append(f"afftdn=nr={int(5 + 15 * clamp(clarity, 0, 100) / 100)}")
     args += ["-vn", "-af", ",".join(filters), "-ar", str(sample_rate),
@@ -259,6 +261,9 @@ class Library:
         except Exception:
             shutil.rmtree(folder, ignore_errors=True)
             raise
+        if not sample.is_file() or sf.info(str(sample)).duration < 1:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise ValueError("Reference cleaner found too little speech. Use a clearer recording.")
         voice = {
             "id": voice_id, "name": (name or source.stem).strip()[:100],
             "tags": tags.strip()[:250], "notes": notes.strip()[:1000], "favorite": False,
@@ -301,7 +306,7 @@ class Library:
         self.save()
         return clone
 
-    def export_voice(self, voice_id, destination: Path):
+    def export_voice(self, voice_id, destination: Path, include_models=False, language="english_2026-04"):
         voice = self.get_voice(voice_id)
         if voice is None:
             raise KeyError(voice_id)
@@ -310,8 +315,16 @@ class Library:
             # Shared inference models are separately cached, NOT misleadingly embedded here.
             manifest = {k: v for k, v in voice.items() if k not in ("reference", "original")}
             manifest["format_version"] = FORMAT_VERSION
-            manifest["model_assets_included"] = False
+            model_files = model_file_names(language)
+            available = all((self.root / "models" / path).is_file() for path in model_files)
+            if include_models and not available:
+                raise ValueError("Models not cached yet. Generate speech first or export without weights.")
+            manifest["model_assets_included"] = bool(include_models)
+            manifest["model_language"] = language if include_models else None
             z.writestr("manifest.json", json.dumps(manifest, indent=2))
+            if include_models:
+                for path in model_files:
+                    z.write(self.root / "models" / path, "model/" + path)
             z.write(self.root / voice["reference"], "reference.wav")
             old = self.root / voice["original"]
             z.write(old, "original" + old.suffix)
@@ -324,11 +337,24 @@ class Library:
             names = z.namelist()
             if names.count("manifest.json") != 1 or names.count("reference.wav") != 1:
                 raise ValueError("Missing or duplicate voice package contents")
-            if len(names) > 4 or any(info.file_size > 300 * 1024 * 1024 for info in z.infolist()):
+            if len(names) > 4 + len(MODEL_FILES) or any(info.file_size > 1024 * 1024 * 1024 for info in z.infolist()):
                 raise ValueError("Voice package too large")
+            if z.getinfo("manifest.json").file_size > 1024 * 1024:
+                raise ValueError("Voice package manifest too large")
+            if z.getinfo("reference.wav").file_size > 20 * 1024 * 1024:
+                raise ValueError("Voice conditioning audio too large")
             manifest = json.loads(z.read("manifest.json"))
             if manifest.get("format_version") != FORMAT_VERSION:
                 raise ValueError("Unsupported voice package version")
+            bundled_language = manifest.get("model_language")
+            bundled_names = model_file_names(bundled_language) if bundled_language else []
+            if manifest.get("model_assets_included"):
+                if manifest.get("model_revision") != MODEL_REVISION:
+                    raise ValueError("Bundled model version does not match this application.")
+                if sorted(n for n in names if n.startswith("model/")) != sorted("model/" + n for n in bundled_names):
+                    raise ValueError("Incomplete or unexpected cached model assets")
+            elif any(n.startswith("model/") for n in names):
+                raise ValueError("Unexpected model entries")
             originals = [n for n in names if re.fullmatch(r"original\.[A-Za-z0-9]+", n)]
             voice_id = uuid.uuid4().hex
             folder = self.root / "voices" / voice_id
@@ -351,6 +377,13 @@ class Library:
                     "source_length": manifest.get("source_length", 0),
                     "model": MODEL_REPO, "model_revision": MODEL_REVISION,
                 }
+                if manifest.get("model_assets_included"):
+                    for name in bundled_names:
+                        target = self.root / "models" / name
+                        if not target.exists() or target.stat().st_size == 0:
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            with z.open("model/" + name) as src, open(target, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
                 self.voices.append(voice)
                 self.save()
                 return voice
