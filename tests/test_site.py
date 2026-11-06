@@ -81,7 +81,7 @@ class WebBuildTests(unittest.TestCase):
         self.assertIn("studio-addon.js", page)
         self.assertIn("vendor/lame.min.js", page)
         self.assertIn('href="./theme.css"', page)
-        self.assertIn("Voice Clone Studio", page)
+        self.assertIn("Pocket Voice Studio", page)
         self.assertIn("window.__pocketApp = new PocketVoice();", source.read_text(encoding="utf-8"))
 
 
