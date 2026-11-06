@@ -216,6 +216,12 @@ jobs:
           python -m unittest discover -s tests -p 'test_site.py' -v
           test -s web/download/SingleVoice-Base.exe
           test -s web/download/build-info.json
+      - name: Select GitHub Actions as Pages deployment source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pages" -f build_type=workflow
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
