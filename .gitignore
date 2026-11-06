@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.spec
+build/
+dist/
+.venv/
+VoiceData/
+pocket_tts_onnx.py
+*.voicepack
+*.wav
+*.mp3
+*.log
+.DS_Store
