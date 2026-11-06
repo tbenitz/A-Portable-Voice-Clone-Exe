@@ -5,6 +5,8 @@ import argparse
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import soundfile as sf
@@ -23,7 +25,7 @@ def main():
         # Test-only voice clip; waveform validity, NOT similarity to any real person.
         time = np.arange(24000 * 5, dtype=np.float32) / 24000
         sf.write(source, (.14 * np.sin(time * 2 * np.pi * 180)).astype("float32"), 24000)
-        personalized = generate_single_exe(base, source.read_bytes(), "Windows smoke", args.output)
+        personalized = generate_single_exe(base, source.read_bytes(), "Windows smoke", Path(args.output).resolve())
         run = subprocess.run([str(personalized), "--self-test"], timeout=40)
         if run.returncode:
             raise RuntimeError(f"Personalized Windows PE self-test returned {run.returncode}")
