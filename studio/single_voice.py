@@ -6,6 +6,7 @@ Pocket inference runtime. No Python installation is required by end users.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -16,13 +17,14 @@ import traceback
 from pathlib import Path
 from tkinter import (
     Tk, Toplevel, StringVar, BooleanVar, DoubleVar, Text, Frame, Label,
-    Button, Checkbutton, Scale, END, filedialog, messagebox, ttk
+    Button, Checkbutton, Scale, END, filedialog, messagebox, ttk, Menu, TclError, simpledialog
 )
 
 import numpy as np
 import sounddevice as sd
 
 from .core import Library, PocketEngine, PRESETS, parameters, export_audio, now
+from .clipboard_control import ClipboardSpeechQueue, MAX_CHARS
 
 DARK = "#0d1526"
 PANEL = "#19263d"
@@ -51,14 +53,24 @@ class CompactStudio:
         base = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "PortableVoiceClone" / "VoiceData"
         self.lib = Library(base)
         self.engine = PocketEngine(self.lib)
+        # Keep preferences for each personalized voice, without ever storing
+        # clipboard contents or copied text on disk.
+        fingerprint = hashlib.sha256(self.profile["voice_path"].read_bytes()).hexdigest()[:20]
+        preferences_dir = self.lib.root / "personal-edition"
+        preferences_dir.mkdir(parents=True, exist_ok=True)
+        self.preferences_file = preferences_dir / (fingerprint + ".json")
+        try:
+            preferences = json.loads(self.preferences_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            preferences = {}
         self.voice = {"id": "personalized", "name": self.profile["name"],
                       "reference": str(self.profile["voice_path"])}
         # Library paths are normally relative to root. For a signed/extracted
         # profile the voice_path is absolute; Path(base) / absolute stays absolute.
         self.root = Tk()
         self.root.title(self.profile["name"] + " · Pocket Voice")
-        self.root.geometry("704x600")
-        self.root.minsize(530, 470)
+        self.root.geometry("730x640")
+        self.root.minsize(570, 480)
         self.root.configure(bg=DARK)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.events = queue.Queue()
@@ -70,14 +82,26 @@ class CompactStudio:
         self.last_text = None
         self.voice_name = StringVar(value=self.profile["name"])
         self.status = StringVar(value="Ready · single voice · local Pocket TTS")
-        self.preset = StringVar(value="Balanced")
-        self.speed = DoubleVar(value=1.0)
-        self.pitch = DoubleVar(value=0.0)
-        self.stability = DoubleVar(value=50)
-        self.topmost = BooleanVar(value=False)
+        self.preset = StringVar(value=preferences.get("preset", "Balanced"))
+        self.speed = DoubleVar(value=preferences.get("speed", 1.0))
+        self.pitch = DoubleVar(value=preferences.get("pitch", 0.0))
+        self.stability = DoubleVar(value=preferences.get("stability", 50))
+        self.topmost = BooleanVar(value=bool(preferences.get("topmost", False)))
+        self.monitor_clipboard = BooleanVar(value=bool(preferences.get("monitor_clipboard", False)))
+        self.hotkeys_enabled = BooleanVar(value=bool(preferences.get("hotkeys_enabled", True)))
+        self.hotkey_speak = StringVar(value=preferences.get("hotkey_speak", "<ctrl>+<alt>+v"))
+        self.hotkey_replay = StringVar(value=preferences.get("hotkey_replay", "<ctrl>+<alt>+r"))
+        self.clipboard_queue = ClipboardSpeechQueue(max_items=20)
+        self.hotkey_listener = None
+        self._closed = False
         self._style()
         self._build()
+        self._build_menu()
+        self.root.attributes("-topmost", self.topmost.get())
+        self.clipboard_queue.arm(self._get_clipboard_text())
+        self._install_hotkeys()
         self.root.after(100, self._poll)
+        self.root.after(700, self._check_clipboard)
         self.root.bind("<Control-Return>", lambda event: self.generate())
         self.root.bind("<Control-s>", lambda event: self.export_audio())
         self.root.bind("<Escape>", lambda event: self.stop())
@@ -125,6 +149,7 @@ class CompactStudio:
         self.btn(row, "▶  Generate", self.generate, True).pack(side="left", padx=(0, 7))
         self.btn(row, "↻  Replay", self.replay).pack(side="left", padx=3)
         self.btn(row, "↓  WAV / MP3", self.export_audio).pack(side="left", padx=3)
+        self.btn(row, "Clipboard → Speak", self.speak_clipboard).pack(side="left", padx=3)
         self.btn(row, "■  Stop", self.stop).pack(side="right")
 
         cols = Frame(outer, bg=DARK)
@@ -136,6 +161,10 @@ class CompactStudio:
         Checkbutton(cols, text="Always on top", variable=self.topmost, command=self._set_topmost,
                     bg=DARK, fg=WHITE, activebackground=DARK, activeforeground=WHITE,
                     selectcolor=PANEL, font=("Segoe UI", 9)).pack(side="left")
+        Checkbutton(cols, text="Speak new copies", variable=self.monitor_clipboard,
+                    command=self._toggle_monitor, bg=DARK, fg=WHITE,
+                    activebackground=DARK, activeforeground=WHITE,
+                    selectcolor=PANEL, font=("Segoe UI", 9)).pack(side="left", padx=7)
 
         controls = Frame(outer, bg=DARK)
         controls.pack(fill="x")
@@ -153,11 +182,187 @@ class CompactStudio:
 
         Label(outer, textvariable=self.status, bg=DARK, fg=CYAN, anchor="w",
               justify="left", wraplength=640, font=("Segoe UI", 9)).pack(fill="x", pady=(10, 0))
-        self._label(outer, "Ctrl+Enter generate  ·  Ctrl+S export  ·  Esc stop  ·  100% local synthesis after model download",
+        self._label(outer, "Ctrl+Enter generate · Ctrl+Alt+V speak clipboard · Ctrl+Alt+R replay · Esc stop",
                     MUTED, 8).pack(anchor="w", pady=(6, 0))
+
+
+    def _save_preferences(self):
+        preferences = {
+            "preset": self.preset.get(), "speed": float(self.speed.get()),
+            "pitch": float(self.pitch.get()), "stability": float(self.stability.get()),
+            "topmost": bool(self.topmost.get()),
+            "monitor_clipboard": bool(self.monitor_clipboard.get()),
+            "hotkeys_enabled": bool(self.hotkeys_enabled.get()),
+            "hotkey_speak": self.hotkey_speak.get(),
+            "hotkey_replay": self.hotkey_replay.get(),
+        }
+        try:
+            temporary = self.preferences_file.with_suffix(".tmp")
+            temporary.write_text(json.dumps(preferences, indent=2), encoding="utf-8")
+            temporary.replace(self.preferences_file)
+        except OSError as exc:
+            self.status.set("Could not save local preferences: " + str(exc))
+
+    def _build_menu(self):
+        bar = Menu(self.root)
+        file_menu = Menu(bar, tearoff=0)
+        file_menu.add_command(label="Save last WAV / MP3...  Ctrl+S", command=self.export_audio)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.close)
+        bar.add_cascade(label="File", menu=file_menu)
+
+        clipboard = Menu(bar, tearoff=0)
+        clipboard.add_command(label="Speak current clipboard  Ctrl+Alt+V", command=self.speak_clipboard)
+        clipboard.add_command(label="Paste clipboard text to editor", command=self.paste_clipboard)
+        clipboard.add_checkbutton(label="Automatically speak newly copied text",
+                                  variable=self.monitor_clipboard, command=self._toggle_monitor)
+        clipboard.add_command(label="Clear pending clipboard queue", command=self.clipboard_queue.clear)
+        bar.add_cascade(label="Clipboard", menu=clipboard)
+
+        playback = Menu(bar, tearoff=0)
+        playback.add_command(label="Generate  Ctrl+Enter", command=self.generate)
+        playback.add_command(label="Replay last audio  Ctrl+Alt+R", command=self.replay)
+        playback.add_command(label="Stop  Esc", command=self.stop)
+        bar.add_cascade(label="Playback", menu=playback)
+
+        settings = Menu(bar, tearoff=0)
+        settings.add_checkbutton(label="Always on top", variable=self.topmost, command=self._set_topmost)
+        settings.add_checkbutton(label="Enable global hotkeys", variable=self.hotkeys_enabled,
+                                 command=self._install_hotkeys)
+        settings.add_command(label="Customize global hotkeys...", command=self.edit_hotkeys)
+        bar.add_cascade(label="Settings", menu=settings)
+
+        help_menu = Menu(bar, tearoff=0)
+        help_menu.add_command(label="Keyboard shortcuts / clipboard privacy", command=self.show_help)
+        help_menu.add_command(label="About this voice", command=lambda: messagebox.showinfo(
+            "Pocket Voice", self.profile["name"] + "\nOne-voice offline Pocket TTS application after model caching."))
+        bar.add_cascade(label="Help", menu=help_menu)
+        self.root.config(menu=bar)
+
+    def _get_clipboard_text(self):
+        try:
+            value = self.root.clipboard_get()
+            return value if isinstance(value, str) else ""
+        except (TclError, RuntimeError):
+            return ""
+
+    def _toggle_monitor(self):
+        self.clipboard_queue.arm(self._get_clipboard_text())
+        if self.monitor_clipboard.get():
+            self.status.set("New-copy monitoring ON. Only new text copies are spoken; passwords may also be copied.")
+        else:
+            self.status.set("Clipboard monitoring is OFF.")
+            self.clipboard_queue.clear()
+        self._save_preferences()
+
+    def _check_clipboard(self):
+        if self._closed:
+            return
+        if self.monitor_clipboard.get():
+            copied = self.clipboard_queue.observe(self._get_clipboard_text())
+            if copied:
+                self._speak_text(copied)
+        self.root.after(700, self._check_clipboard)
+
+    def _speak_text(self, content):
+        content = (content or "").strip()
+        if not content:
+            return
+        if len(content) > MAX_CHARS:
+            self.status.set("Clipboard text exceeded 50,000 characters and was skipped.")
+            return
+        if self.task and self.task.is_alive():
+            if self.clipboard_queue.enqueue(content):
+                self.status.set("New clipboard item queued (" + str(len(self.clipboard_queue)) + ").")
+            return
+        self.text.delete("1.0", END)
+        self.text.insert("1.0", content)
+        self.generate()
+
+    def speak_clipboard(self):
+        content = self._get_clipboard_text()
+        if not content.strip():
+            self.status.set("Clipboard contains no text. Copy some text first.")
+            return
+        self.clipboard_queue.arm(content)
+        self._speak_text(content)
+
+    def paste_clipboard(self):
+        content = self._get_clipboard_text()
+        if content:
+            self.text.delete("1.0", END)
+            self.text.insert("1.0", content)
+
+    def _stop_hotkeys(self):
+        if self.hotkey_listener:
+            try:
+                self.hotkey_listener.stop()
+            except Exception:
+                pass
+            self.hotkey_listener = None
+
+    def _install_hotkeys(self):
+        self._stop_hotkeys()
+        self._save_preferences()
+        if not self.hotkeys_enabled.get():
+            return
+        try:
+            from pynput import keyboard
+            speak = self.hotkey_speak.get().strip()
+            replay = self.hotkey_replay.get().strip()
+            if speak == replay:
+                raise ValueError("Generate and Replay shortcuts must be different.")
+            keyboard.HotKey.parse(speak)
+            keyboard.HotKey.parse(replay)
+            self.hotkey_listener = keyboard.GlobalHotKeys({
+                speak: lambda: self._emit("hotkey", "speak"),
+                replay: lambda: self._emit("hotkey", "replay"),
+            })
+            self.hotkey_listener.start()
+        except Exception as exc:
+            self.hotkey_listener = None
+            self.status.set("Global hotkeys unavailable: " + str(exc))
+
+    def edit_hotkeys(self):
+        first = simpledialog.askstring("Speak Clipboard hotkey",
+            "Use pynput syntax, e.g. <ctrl>+<alt>+v",
+            initialvalue=self.hotkey_speak.get(), parent=self.root)
+        if first is None:
+            return
+        second = simpledialog.askstring("Replay audio hotkey",
+            "Use pynput syntax, e.g. <ctrl>+<alt>+r",
+            initialvalue=self.hotkey_replay.get(), parent=self.root)
+        if second is None:
+            return
+        try:
+            from pynput import keyboard
+            keyboard.HotKey.parse(first)
+            keyboard.HotKey.parse(second)
+            if first == second:
+                raise ValueError("Hotkeys must be different.")
+        except Exception as exc:
+            messagebox.showerror("Invalid global hotkey", str(exc))
+            return
+        self.hotkey_speak.set(first)
+        self.hotkey_replay.set(second)
+        self._install_hotkeys()
+
+    def show_help(self):
+        messagebox.showinfo("Pocket Voice — shortcuts and privacy",
+            "Ctrl+Enter: generate entered text\n"
+            "Ctrl+S: save the last audio without regeneration\n"
+            "Esc: stop playback or speech\n"
+            "Ctrl+Alt+V: speak current clipboard (global)\n"
+            "Ctrl+Alt+R: replay last generation (global)\n\n"
+            "The optional clipboard watcher is OFF by default. When enabled, "
+            "it speaks every new text entry copied by other applications, "
+            "which may include sensitive content. Voice and clipboard processing "
+            "run locally; clipboard text is not stored in preferences. "
+            "Use Settings to change or disable global shortcuts.")
 
     def _set_topmost(self):
         self.root.attributes("-topmost", self.topmost.get())
+        self._save_preferences()
 
     def _emit(self, kind, value):
         self.events.put((kind, value))
@@ -176,6 +381,16 @@ class CompactStudio:
                     messagebox.showerror("Pocket voice error", str(value))
                 elif kind == "finish":
                     self.task = None
+                    next_text = self.clipboard_queue.pop()
+                    if next_text:
+                        self.root.after(25, lambda text=next_text: self._speak_text(text))
+                elif kind == "hotkey":
+                    if value == "speak":
+                        self.speak_clipboard()
+                    elif value == "replay":
+                        self.replay()
+                    elif value == "stop":
+                        self.stop()
         except queue.Empty:
             pass
         self.root.after(100, self._poll)
@@ -307,6 +522,7 @@ class CompactStudio:
         self._emit("status", f"Exported: {destination}")
 
     def stop(self):
+        self.clipboard_queue.clear()
         self.stop_event.set()
         stream = self.active_stream
         if stream:
@@ -318,6 +534,9 @@ class CompactStudio:
         self.status.set("Stopped. Last completed audio is still available for Replay / Export.")
 
     def close(self):
+        self._closed = True
+        self._save_preferences()
+        self._stop_hotkeys()
         self.stop()
         self.root.destroy()
 
