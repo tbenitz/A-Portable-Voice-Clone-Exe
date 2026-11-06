@@ -292,12 +292,20 @@ class Studio:
         self.lib_tree.pack(fill="both", expand=True)
         self.lib_tree.bind("<<TreeviewSelect>>", self.library_changed)
         controls = self.frame(self.library_tab)
-        controls.pack(fill="x", pady=12)
-        for title, cb in (("Use in Studio", self.use_selected), ("▶ Preview", self.preview_voice),
-                          ("★ Favorite", self.favorite), ("Duplicate", self.duplicate_voice),
-                          ("Edit details", self.edit_voice), ("Export .voicepack", self.export_voice),
-                          ("Import .voicepack", self.import_pack), ("Single-voice EXE", self.export_personal_exe), ("Delete", self.delete_voice)):
-            self.make_btn(controls, title, cb).pack(side="left", padx=3)
+        controls.pack(fill="x", pady=(10, 4))
+        exports = self.frame(self.library_tab)
+        exports.pack(fill="x", pady=(0, 10))
+        actions = (
+            ("Use in Studio", self.use_selected), ("▶ Preview", self.preview_voice),
+            ("★ Favorite", self.favorite), ("Duplicate", self.duplicate_voice),
+            ("Edit details", self.edit_voice), ("Export .voicepack", self.export_voice),
+            ("Import .voicepack", self.import_pack),
+            ("Single-voice EXE", self.export_personal_exe),
+            ("Delete", self.delete_voice),
+        )
+        for index, (title, cb) in enumerate(actions):
+            parent = controls if index < 5 else exports
+            self.make_btn(parent, title, cb).pack(side="left", padx=3, pady=3)
         self.health_details = self.label(self.library_tab, "Import a voice to inspect signal health.")
         self.health_details.pack(fill="x", pady=9)
         self.label(self.library_tab,
