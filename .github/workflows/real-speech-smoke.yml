@@ -1,0 +1,27 @@
+name: Verify real Pocket voice cloning
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-speech:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install real ONNX inference and audio decoder
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          python scripts/fetch_inference.py
+      - name: Download ONNX model, encode a real voice and generate speech
+        shell: pwsh
+        run: python -m scripts.smoke_engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Actual-Pocket-Clone-Audio
+          path: pocket-smoke-output.wav
+          retention-days: 14
