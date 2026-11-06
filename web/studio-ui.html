@@ -1,0 +1,48 @@
+<section class="studio-experience" id="studio-experience" aria-label="Recordings and Windows downloads">
+  <div class="experience-topline"><span class="eyebrow">02 / AUDITION &amp; EXPORT</span><span class="small-pill">LOCAL AUDIO ENGINE</span></div>
+  <div class="audio-compare">
+    <article class="listen-card">
+      <div class="listen-heading"><span class="listen-icon">A</span><div><h3>Reference recording</h3><p>Listen to the exact excerpt used for the voice clone.</p></div></div>
+      <audio controls preload="none" id="reference-player" aria-label="Original voice reference" class="studio-audio"></audio>
+      <div id="reference-note" class="listen-caption">Upload or record your speech to enable reference playback.</div>
+    </article>
+    <article class="listen-card">
+      <div class="listen-heading"><span class="listen-icon accent">B</span><div><h3>Generated clone</h3><p>Replay as many times as you want. No regeneration necessary.</p></div></div>
+      <audio controls preload="none" id="clone-player" aria-label="Generated cloned speech" class="studio-audio"></audio>
+      <div id="generated-note" class="listen-caption">Type text and press Generate Audio to hear the clone.</div>
+    </article>
+  </div>
+  <div class="format-row">
+    <div class="format-desc"><strong>Keep your generated audio</strong><span>WAV or MP3 from the same generated recording.</span></div>
+    <button type="button" id="save-wav" class="studio-btn studio-btn-secondary" disabled>↓ Download WAV</button>
+    <button type="button" id="save-mp3" class="studio-btn studio-btn-secondary" disabled>↓ Download MP3</button>
+  </div>
+  <div class="build-heading">
+    <div><span class="eyebrow">03 / CHOOSE YOUR WINDOWS APP</span><h2>One voice or a whole studio.</h2>
+      <p>Test the voice above, then create a personal executable or install the complete multi-voice desktop suite.</p>
+    </div>
+  </div>
+  <div class="product-grid">
+    <article class="product-card product-card-featured">
+      <div class="product-kicker">PERSONAL EDITION <span>Single voice</span></div>
+      <div class="product-visual" aria-hidden="true"><div class="mock-voice"><div class="mock-top">POCKET VOICE <span>●</span></div><div class="mock-voice-name">My cloned voice</div><div class="mock-input">Type or paste text to speak...</div><div class="mock-transport"><span>▶ Generate</span><span>↻ Replay</span><span>↓ WAV / MP3</span></div></div></div>
+      <h3>Your voice in one EXE.</h3>
+      <p>Compact Windows app with one embedded voice, quality controls, text generation, replay and export. Reference audio stays private.</p>
+      <div class="product-features"><span>One voice included</span><span>Adjustable speed &amp; pitch</span><span>Replay + audio files</span><span>No Python installation</span></div>
+      <label class="consent-check"><input id="single-consent" type="checkbox"> I own this voice or have permission to clone it.</label>
+      <button type="button" class="studio-btn studio-btn-primary" id="download-personal" disabled>Build my single-voice EXE</button>
+      <p id="personal-status" class="product-status" role="status" aria-live="polite">Upload a voice, generate a cloned example, and confirm permission to unlock.</p>
+    </article>
+    <article class="product-card">
+      <div class="product-kicker">PRO STUDIO <span>Multi voice</span></div>
+      <div class="product-visual pro-art" aria-hidden="true"><div class="mock-desktop"><div class="mock-side"><i></i><i></i><i></i><i></i></div><div class="mock-work"><div class="mock-line long"></div><div class="mock-line"></div><div class="mock-line short"></div><div class="mock-bars">▂ ▄ ▆ █ ▆ ▃ ▅ █ ▅ ▂ ▄ ▇</div></div></div></div>
+      <h3>Complete Voice Clone Studio.</h3>
+      <p>Install the Windows application for your voice library, longer reference analysis, batch projects, microphone workflows and personal EXE exporting.</p>
+      <div class="product-features"><span>Unlimited local voices</span><span>Batch text &amp; audio</span><span>Reference health analysis</span><span>Generates personal EXEs</span></div>
+      <a class="studio-btn studio-btn-outline" id="download-suite" href="https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest/download/VoiceCloneStudio-Setup.exe">↓ Download Windows installer</a>
+      <p class="product-status">Windows 10/11 x64 · Includes runtime and libraries · Model downloads once</p>
+      <a class="small-link" href="https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest">Releases and alternate builds</a>
+    </article>
+  </div>
+  <div class="privacy-strip"><span>✦ Real Pocket TTS inference</span><span>✦ Private on-device voice data</span><span>✦ Preview before download</span><span>✦ Offline after model caching</span></div>
+</section>
