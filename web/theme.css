@@ -165,3 +165,63 @@ body::after { content:""; display:block; position:fixed; inset:0; background-ima
 .personal-name-label{display:block;font-size:12px;font-weight:750;color:#bcdce9;margin:3px 0 7px}
 .personal-name-input{display:block;width:100%;min-height:44px;border:1px solid #44637d;border-radius:9px;background:#0b1f31;color:#f2f9ff;padding:11px 13px;font:500 14px var(--sans);margin-bottom:14px;box-sizing:border-box}
 .personal-name-input:focus{outline:2px solid rgba(101,216,239,.65);outline-offset:1px}
+
+
+/* v55 polish: tighter studio rhythm, clearer loading and keyboard focus */
+#app .app-section__header{max-width:820px;margin:0 auto 29px;text-align:left}
+#app .app-section__sub{font-size:15px;line-height:1.65;max-width:760px}
+#app .app-grid{grid-template-columns:minmax(0,.93fr) minmax(0,1.07fr);gap:20px}
+#app .app-grid>div{min-width:0}
+#app .panel{border-radius:17px;box-shadow:0 12px 36px rgba(0,0,0,.12)}
+#app .panel__label{font-size:11px;margin-bottom:13px}
+#app .text-area{min-height:225px;line-height:1.6;resize:vertical}
+#app .clone__actions{gap:11px}
+#app .clone-btn{min-height:48px;font-weight:720}
+#app .selectors-row{gap:14px}
+#app #btn-generate{min-height:56px;font-size:15px}
+#app #btn-generate:disabled,
+#app #btn-generate.voice-pending{
+  background:#314456!important;
+  color:#b9c9d8!important;
+  border:1px solid #526a7d;
+  box-shadow:none!important;
+  filter:grayscale(1);
+  opacity:1!important;
+  cursor:not-allowed;
+  transform:none;
+}
+#app #btn-generate.voice-pending .spinner{
+  display:block;border-color:#93a4b5;border-top-color:#dce6ef;
+}
+#app #btn-generate.voice-pending svg{display:none}
+#app #btn-generate.voice-pending .btn-text{
+  display:inline;font-weight:750;color:#d2deeb;
+}
+#app #btn-generate:focus-visible,
+#app .clone-btn:focus-visible,
+#app .studio-btn:focus-visible,
+#app .studio-audio:focus-visible{
+  outline:3px solid #a6f0fb;outline-offset:3px;
+}
+#studio-experience .listen-card{transition:border-color .2s,background .2s}
+#studio-experience .listen-card:focus-within{border-color:#75e3f6}
+#studio-experience .product-card .studio-btn{min-height:53px}
+#studio-experience .format-row{gap:12px}
+@media(max-width:900px){
+ #app .app-grid{grid-template-columns:1fr;gap:15px}
+ #app .app-section__header{margin:0 0 19px}
+ #app .text-area{min-height:175px}
+}
+@media(max-width:600px){
+ #app .app-section__header{padding:0 3px}
+ #app .app-section__sub{font-size:13px;line-height:1.55}
+ #app .panel{padding:17px;border-radius:14px}
+ #app .clone__actions{display:grid;grid-template-columns:1fr 1fr}
+ #app .clone-btn{width:100%;justify-content:center}
+ #app .selectors-row{display:grid;grid-template-columns:1fr;gap:10px}
+ #app .selectors-row>div{min-width:0}
+ #app .field__select{width:100%;max-width:none}
+ #studio-experience .format-row .studio-btn{width:100%;flex:1 1 100%}
+ #studio-experience .product-features{grid-template-columns:1fr}
+ #studio-experience .product-visual{height:146px}
+}
