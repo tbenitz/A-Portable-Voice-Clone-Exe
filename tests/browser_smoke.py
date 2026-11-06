@@ -67,33 +67,34 @@ def main():
             assert output.suggested_filename.endswith(".mp3"), output.suggested_filename
             assert path.stat().st_size > 1000, "MP3 encoding output too small"
             print("PASS: website recording/upload controls, retained playback, actual MP3 encoding", flush=True)
-            # Test cross-origin CORS from an actual web page, not Node.js (which
-            # skips browser CORS). Fetch only response headers of the large asset.
-            probe = page.evaluate("""async () => {
-              let stage="release_api";
-              try {
-                const api='https://api.github.com/repos/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest';
-                const response=await fetch(api,{cache:'no-store'});
-                if(!response.ok) throw new Error('Release API HTTP '+response.status);
-                const release=await response.json();
-                const asset=(release.assets||[]).find(x=>x.name==='SingleVoice-Base.exe');
-                if(!asset) throw new Error('Base EXE missing from release');
-                const control=new AbortController();
-                stage="asset_binary";
-                const binary=await fetch(asset.url,{
-                    headers:{Accept:'application/octet-stream'},
-                    redirect:'follow',signal:control.signal
-                });
-                const mime=binary.headers.get('content-type') || '';
-                if (binary.body) await binary.body.cancel();
-                control.abort();
-                return {ok:binary.ok,type:binary.type,status:binary.status,
-                        mime,assetSize:asset.size,assetName:asset.name};
-              } catch(error) { return {stage,error:String(error)}; }
-            }""")
-            print("RELEASE_BINARY_BROWSER_CORS:", json.dumps(probe), flush=True)
-            if probe.get("error") or not probe.get("ok") or "json" in probe.get("mime",""):
-                raise RuntimeError("Browser cannot fetch the large personal EXE directly: "+json.dumps(probe))
+            # The EXE starter is served from the same GitHub Pages origin,
+            # avoiding the cross-origin binary restriction of GitHub Releases.
+            starter = ROOT / "web" / "download" / "SingleVoice-Starter.exe"
+            if starter.is_file():
+                result = page.evaluate("""() => {
+                  const app=window.__pocketApp;
+                  app.lastClonedPCM=new Float32Array(24000*5);
+                  if (![...app.el.voiceSelect.options].some(x=>x.value==='custom')){
+                    const choice=document.createElement('option');choice.value='custom';
+                    choice.text='My voice';app.el.voiceSelect.prepend(choice);
+                  }
+                  app.el.voiceSelect.value='custom';
+                  app.activeVoice='custom';
+                  app.currentChunks=[new Float32Array(24000).fill(.12)];
+                  app.buildDownloadBlob();
+                  const consent=document.getElementById('single-consent');
+                  consent.checked=true;
+                  consent.dispatchEvent(new Event('change'));
+                  return {enabled:!document.getElementById('download-personal').disabled};
+                }""")
+                assert result["enabled"], result
+                with page.expect_download(timeout=30000) as download_result:
+                    page.locator("#download-personal").click()
+                exe = download_result.value.path().read_bytes()
+                assert exe[:2] == b"MZ" and exe[-16:-8] == b"CVRCFG01", "Personalized EXE invalid"
+                print("PASS: browser personalized standalone EXE assembled locally", flush=True)
+            else:
+                print("Starter pending publication by Windows build: browser EXE test deferred", flush=True)
             browser.close()
     finally:
         server.shutdown()

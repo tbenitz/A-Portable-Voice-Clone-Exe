@@ -2,6 +2,9 @@ name: Build Windows apps and publish voice studio
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'web/download/SingleVoice-Starter.exe'
+      - 'web/download/starter-build.json'
   workflow_dispatch:
 
 permissions:
@@ -82,6 +85,25 @@ jobs:
         run: |
           dotnet publish desktop/single_launcher/SingleVoiceLauncher.csproj -c Release -r win-x64 -p:PublishAot=true -o launcher-out
           if (-not (Test-Path launcher-out/SingleVoiceLauncher.exe)) { throw 'Native compact EXE launcher missing' }
+      - name: Create tiny personal voice starter for the website
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path web/download | Out-Null
+          Copy-Item launcher-out/SingleVoiceLauncher.exe web/download/SingleVoice-Starter.exe
+          $starter = 'web/download/SingleVoice-Starter.exe'
+          $info = @{
+            sha256 = (Get-FileHash $starter -Algorithm SHA256).Hash.ToLowerInvariant()
+            size = (Get-Item $starter).Length
+            architecture = 'windows-x64'
+            thin = $true
+            revision = $env:GITHUB_SHA.Substring(0,10)
+          } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'web/download/starter-build.json'),
+            $info, (New-Object System.Text.UTF8Encoding($false)))
+          if ((Get-Item $starter).Length -ge 40000000) { throw 'Browser starter too large to publish in GitHub Pages' }
+          $p = Start-Process -FilePath (Resolve-Path $starter).Path -ArgumentList '--self-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Native thin starter self-test failed (exit $($p.ExitCode))" }
       - name: Bundle single-voice runtime inside one Windows EXE
         shell: pwsh
         run: |
@@ -142,6 +164,17 @@ jobs:
           $uninstall = Join-Path $destination 'unins000.exe'
           if (-not (Test-Path $uninstall)) { throw 'Windows uninstaller missing' }
           Write-Host "PASS: actual installer, runtime and uninstaller checked."
+      - name: Publish small browser EXE starter to repository Pages branch
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/download/SingleVoice-Starter.exe web/download/starter-build.json
+          git commit -m "Publish verified thin personal-voice Windows launcher [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'Starter files could not be committed to the Pages branch' }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'Starter launch files could not be published to main' }
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceCloneStudio-Windows-Setup

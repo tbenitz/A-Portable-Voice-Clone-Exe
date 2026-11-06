@@ -96,6 +96,16 @@ static class Program
     // For compact browser-built EXEs, the launcher contains only its voice.
     // The large frozen Pocket runtime is downloaded on Windows once and cached.
     // The GitHub API supplies a SHA-256 digest; the binary MUST match it.
+    static bool MatchesHash(string file, string expected)
+    {
+        try
+        {
+            using var stream = File.OpenRead(file);
+            return Convert.ToHexString(SHA256.HashData(stream)).Equals(expected, StringComparison.Ordinal);
+        }
+        catch (IOException) { return false; }
+    }
+
     static string FindOrDownloadRuntime(string root)
     {
         foreach (var folder in Directory.EnumerateDirectories(root, "runtime-*"))
@@ -139,8 +149,7 @@ static class Program
             throw new InvalidDataException("Engine digest contains non-hex characters.");
 
         string downloaded = Path.Combine(root, "engine-" + expectedDigest[..16] + ".exe");
-        if (!File.Exists(downloaded) ||
-            !Convert.ToHexString(SHA256.HashData(File.OpenRead(downloaded))).Equals(expectedDigest, StringComparison.Ordinal))
+        if (!File.Exists(downloaded) || !MatchesHash(downloaded, expectedDigest))
         {
             // Incomplete downloads never replace a validated cached file.
             string temporary = downloaded + ".part-" + Guid.NewGuid().ToString("N");
