@@ -38,7 +38,7 @@
            !!app.lastClonedPCM;
   }
   function canExportExe() {
-    return !busy && !app.isGenerating && consent.checked &&
+    return !busy && !app.isGenerating && !app.isVoiceEncoding && consent.checked &&
       customSelected() && app.lastClonedPCM.length >= PCM_RATE * 3 &&
       previewSerial === voiceSerial && previewVoice === "custom" &&
       !!audioPCM && audioPCM.length > PCM_RATE / 3;
@@ -47,6 +47,7 @@
     btnExe.disabled = !canExportExe();
     btnWav.disabled = !audioPCM;
     btnMp3.disabled = !audioPCM || busy;
+    btnExe.setAttribute("aria-busy", busy ? "true" : "false");
   }
   function mergeChunks(chunks) {
     const length = chunks.reduce((sum, c) => sum + c.length, 0);
@@ -193,34 +194,72 @@
   function ascii(bytes, start, size) {
     return new TextDecoder("ascii").decode(bytes.subarray(start, start + size));
   }
+  // Pages can temporarily serve an older build after a release. The second
+  // source is the repository's committed, already-tested 6 MB Windows starter.
+  // Both paths receive the same SHA-256 verification before any executable
+  // is built. The voice recording is only appended locally in this browser.
+  const STARTER_PATHS = [
+    {meta: "./download/starter-build.json", exe: "./download/SingleVoice-Starter.exe"},
+    {meta: "https://raw.githubusercontent.com/tbenitz/A-Portable-Voice-Clone-Exe/main/web/download/starter-build.json",
+     exe: "https://raw.githubusercontent.com/tbenitz/A-Portable-Voice-Clone-Exe/main/web/download/SingleVoice-Starter.exe"}
+  ];
+  // A verified copy from the published Windows CI build. Only used if the
+  // metadata endpoints are unavailable; a mismatching binary is still rejected.
+  const VERIFIED_STARTER = {
+    size: 6102016, thin: true, revision: "259d71d38b",
+    architecture: "windows-x64",
+    sha256: "4341e0068e5beb30460bccaf1b69927921ed7ff6dd2905fa0d1788dd518073eb"
+  };
+  function validateStarterInfo(info) {
+    return !!info && info.architecture === "windows-x64" &&
+      info.thin === true && Number.isSafeInteger(info.size) &&
+      info.size > 200000 && info.size < 40000000 &&
+      /^[a-f0-9]{64}$/i.test(info.sha256);
+  }
   async function loadTemplate() {
-    message("Checking the Windows personal-voice starter...");
-    const metadataResponse = await fetch("./download/starter-build.json", {cache:"no-store"});
-    if (!metadataResponse.ok) throw new Error(
-      "The small Windows starter has not been published yet. The installed Studio can already create personal EXEs.");
-    const metadata = await metadataResponse.json();
-    if (metadata.architecture !== "windows-x64" || metadata.thin !== true ||
-        !Number.isSafeInteger(metadata.size) || metadata.size < 200000 ||
-        metadata.size > 40000000 || !/^[a-f0-9]{64}$/i.test(metadata.sha256)) {
-      throw new Error("The personal-voice starter verification file is invalid.");
+    message("Preparing the verified single-voice Windows starter…");
+    const errors = [];
+    for (const source of STARTER_PATHS) {
+      try {
+        let metadata;
+        try {
+          const metaResponse = await fetch(source.meta, {cache: "no-store"});
+          if (!metaResponse.ok) throw new Error("HTTP " + metaResponse.status);
+          metadata = await metaResponse.json();
+        } catch (error) {
+          errors.push("metadata " + source.meta + ": " + error.message);
+          // Known build fallback is safe only if SHA-256 of the binary matches.
+          metadata = VERIFIED_STARTER;
+        }
+        if (!validateStarterInfo(metadata)) throw new Error("Invalid verified Windows starter manifest");
+        const result = await fetch(source.exe, {cache: "no-store"});
+        if (!result.ok) throw new Error("HTTP " + result.status);
+        const binary = await result.arrayBuffer();
+        if (binary.byteLength !== metadata.size) {
+          throw new Error("Starter size mismatch (" + binary.byteLength + " versus " + metadata.size + ")");
+        }
+        const bytes = new Uint8Array(binary);
+        const view = new DataView(binary);
+        if (bytes.length < 128) throw new Error("Windows launcher is incomplete");
+        const peAt = view.getUint32(0x3c, true);
+        if (ascii(bytes, 0, 2) !== "MZ" || peAt < 64 || peAt + 6 > bytes.length ||
+            ascii(bytes, peAt, 4) !== "PE\u0000\u0000" ||
+            view.getUint16(peAt + 4, true) !== 0x8664) {
+          throw new Error("Windows x64 executable header is invalid");
+        }
+        const digest = await crypto.subtle.digest("SHA-256", binary);
+        const actual = [...new Uint8Array(digest)]
+          .map(value => value.toString(16).padStart(2, "0")).join("");
+        if (actual !== metadata.sha256.toLowerCase()) {
+          throw new Error("Starter checksum mismatch — refusing an unverified executable");
+        }
+        return {binary, metadata};
+      } catch (error) {
+        errors.push(source.exe + ": " + (error.message || error));
+      }
     }
-    const response = await fetch("./download/SingleVoice-Starter.exe", {cache:"no-store"});
-    if (!response.ok) throw new Error("Windows personal-voice starter unavailable (HTTP " + response.status + ").");
-    const binary = await response.arrayBuffer();
-    if (binary.byteLength !== metadata.size) throw new Error("The starter EXE was truncated.");
-    const bytes = new Uint8Array(binary), view = new DataView(binary);
-    const peAt = view.getUint32(0x3c, true);
-    if (ascii(bytes, 0, 2) !== "MZ" || peAt < 64 || peAt + 6 > bytes.length ||
-        ascii(bytes, peAt, 4) !== "PE\u0000\u0000" ||
-        view.getUint16(peAt + 4, true) !== 0x8664) {
-      throw new Error("The Windows starter failed PE header verification.");
-    }
-    const digest = await crypto.subtle.digest("SHA-256", binary);
-    const actual = [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, "0")).join("");
-    if (actual !== metadata.sha256.toLowerCase()) {
-      throw new Error("Windows starter checksum mismatch. Reload and try again.");
-    }
-    return {binary, metadata};
+    throw new Error("The Windows starter could not be retrieved from the site or GitHub. " +
+      "Please reload the page and retry. (" + errors.join("; ").slice(0, 500) + ")");
   }
 
   btnExe.addEventListener("click", async () => {
