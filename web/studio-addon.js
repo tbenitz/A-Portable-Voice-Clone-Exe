@@ -97,6 +97,7 @@
   app.loadSavedVoice = async (...args) => {
     voiceSerial++;
     previewSerial = -1;
+    app.referenceHealth = null;
     update();
     return load(...args);
   };
@@ -236,7 +237,7 @@
       message("EXE checksum verified. Embedding your cloned voice entirely in this browser...");
       const referenceWav = app.float32ToWav(pcm, PCM_RATE);
       const payload = encode.encode(JSON.stringify({
-        version: 1, engine: "pocket", lang, voice_name: "My Cloned Voice",
+        version: 1, engine: "pocket", lang, voice_name: (el("personal-name").value || "My Cloned Voice").trim().slice(0,72),
         voice_wav_b64: base64(referenceWav)
       }));
       if (payload.length > 8000000) throw new Error("Embedded voice is larger than 8 MB.");
