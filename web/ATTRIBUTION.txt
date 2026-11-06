@@ -1,0 +1,5 @@
+Web UI: Pocket Voice by Hemanth HM (MIT), pinned commit a4496c429f1dcd6ea8faef55a21dc4b7d45636a9
+Desktop and website additions: tbenitz
+Pocket TTS by Kyutai: https://github.com/kyutai-labs/pocket-tts
+Pocket ONNX port by KevinAHM: https://huggingface.co/KevinAHM/pocket-tts-onnx
+lamejs MP3 encoder v1.2.1: LGPL-3.0 https://github.com/zhuker/lamejs

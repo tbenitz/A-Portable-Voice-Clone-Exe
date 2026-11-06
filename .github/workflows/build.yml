@@ -168,63 +168,23 @@ jobs:
           $tag = "studio-v1.0.${{ github.run_number }}"
           gh release create $tag "installer-out/VoiceCloneStudio-Setup.exe" "web/download/SingleVoice-Base.exe" --repo "${{ github.repository }}" --title "Pocket Voice Studio 1.0.${{ github.run_number }}" --notes "Windows x64 full installer (no Python required), plus a personal single-voice EXE template. Use the browser to embed your own voice in the template." --latest
 
-  deploy:
-    needs: windows
+  website:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: VoiceCloneStudio-Browser-Engine
-          path: web/download
-      - name: Bundle exact working Pocket TTS web app
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init /tmp/pocket-voice-working
-          git -C /tmp/pocket-voice-working remote add origin https://github.com/hemanth/pocket-voice.git
-          git -C /tmp/pocket-voice-working fetch --depth 1 origin a4496c429f1dcd6ea8faef55a21dc4b7d45636a9
-          git -C /tmp/pocket-voice-working checkout --detach FETCH_HEAD
-          for file in index.html app.js inference-worker.js main-thread-worker-shim.js PCMPlayerWorklet.js EventEmitter.js sentencepiece.js style.css favicon.svg; do
-            cp "/tmp/pocket-voice-working/$file" "web/$file"
-          done
-          mkdir -p web/vendor
-          curl --fail --location --silent --show-error "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" --output web/vendor/lame.min.js
-          curl --fail --location --silent --show-error "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/LICENSE" --output web/vendor/LAME_LICENSE.txt
-          test -s web/vendor/lame.min.js
-          python tools/brand_site.py
-          printf '%s\n' \
-            "Website adaptation and native Windows apps: tbenitz (https://github.com/tbenitz)" \
-            "Original working browser app: Hemanth HM Pocket Voice (MIT), https://github.com/hemanth/pocket-voice" \
-            "Kyutai Pocket TTS: https://github.com/kyutai-labs/pocket-tts" \
-            "ONNX inference and weights: https://huggingface.co/KevinAHM/pocket-tts-onnx" \
-            "Browser MP3 encoder: lamejs 1.2.1 (LGPL-3.0), license in /vendor/LAME_LICENSE.txt" > web/ATTRIBUTION.txt
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install static website regression-test dependencies
-        run: python -m pip install numpy soundfile
-      - name: Browser syntax, export and verified-page smoke checks
+      - name: Validate committed browser site and JavaScript
         shell: bash
         run: |
+          set -euo pipefail
+          python -m pip install numpy soundfile
           node --check web/app.js
+          node --check web/inference-worker.js
           node --check web/studio-addon.js
+          test -s index.html
+          test -s web/index.html
+          test -s web/sentencepiece.js
+          test -s web/vendor/lame.min.js
           python -m unittest discover -s tests -p 'test_site.py' -v
-          test -s web/download/SingleVoice-Base.exe
-          test -s web/download/build-info.json
-      - name: Select GitHub Actions as Pages deployment source
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method PUT "repos/$GITHUB_REPOSITORY/pages" -f build_type=workflow
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web
-      - id: deploy
-        uses: actions/deploy-pages@v4
