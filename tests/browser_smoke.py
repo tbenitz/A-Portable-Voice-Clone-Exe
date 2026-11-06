@@ -36,7 +36,7 @@ def main():
             context.route("**/huggingface.co/**", lambda route: route.abort())
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_selector("#file-upload", timeout=12000)
+            page.wait_for_selector("#file-upload", state="attached", timeout=12000)
             page.wait_for_selector("#clone-player", timeout=12000)
             for name in ["#btn-record", "#btn-upload", "#btn-generate", "#save-wav",
                          "#save-mp3", "#download-personal", "#personal-name"]:
