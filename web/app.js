@@ -38,6 +38,7 @@ class PocketVoice {
     this.audioContext = null;
     this.isGenerating = false;
     this.isWorkerReady = false;
+    this.isVoiceEncoding = false;
 
     // Voice cloning
     this.mediaRecorder = null;
@@ -311,6 +312,7 @@ class PocketVoice {
         break;
 
       case "voice_encoded":
+        this.isVoiceEncoding = false;
         this.customVoiceLoaded = true;
         if (this.isLoadingSavedVoice) {
           this.setCloneStatus("Voice loaded ✓", "ready");
@@ -361,6 +363,7 @@ class PocketVoice {
         break;
 
       case "error":
+        this.isVoiceEncoding = false;
         console.error("Worker:", msg.error);
         this.updateStatus(`Error: ${msg.error}`, "error");
         this.setCloneStatus(msg.error, "error");
@@ -457,6 +460,11 @@ class PocketVoice {
   }
 
   async processVoiceClip(blob) {
+    this.isVoiceEncoding = true;
+    this.el.btnGenerate.disabled = true;
+    this.el.btnGenerate.classList.add("voice-pending");
+    this.el.btnGenerate.setAttribute("aria-busy", "true");
+    this.el.btnGenerate.querySelector(".btn-text").textContent = "Preparing voice…";
     try {
       await this.ensureAudioContext();
       this.setCloneStatus("Encoding voice…", "");
@@ -533,7 +541,9 @@ class PocketVoice {
       this.worker.postMessage({ type: "encode_voice", data: { audio: clipped } }, [clipped.buffer]);
       this.setCloneStatus("Preparing cloned voice…", "");
     } catch (err) {
+      this.isVoiceEncoding = false;
       this.setCloneStatus(`Failed: ${err.message}`, "error");
+      this.resetUI();
     }
   }
 
@@ -649,7 +659,12 @@ class PocketVoice {
   }
 
   async loadSavedVoice(voice) {
-    if (!this.isWorkerReady || this.isGenerating) return;
+    if (!this.isWorkerReady || this.isGenerating || this.isVoiceEncoding) return;
+    this.isVoiceEncoding = true;
+    this.el.btnGenerate.disabled = true;
+    this.el.btnGenerate.classList.add("voice-pending");
+    this.el.btnGenerate.setAttribute("aria-busy", "true");
+    this.el.btnGenerate.querySelector(".btn-text").textContent = "Loading saved voice…";
     this.setCloneStatus(`Loading "${voice.name}"…`, "");
     this.isLoadingSavedVoice = true; // Suppress save-modal
     this.activeSavedVoiceId = voice.id; // Highlight this item
@@ -729,7 +744,7 @@ class PocketVoice {
   // ── Generation ──
 
   async generate() {
-    if (!this.isWorkerReady || this.isGenerating) return;
+    if (!this.isWorkerReady || this.isGenerating || this.isVoiceEncoding) return;
     const text = this.el.textInput.value.trim();
     if (!text) return;
 
@@ -866,13 +881,17 @@ class PocketVoice {
   }
 
   setLoading(loading) {
-    this.el.btnGenerate.disabled = loading;
+    this.el.btnGenerate.disabled = loading || this.isVoiceEncoding;
     this.el.btnGenerate.classList.toggle("is-loading", loading);
   }
 
   resetUI() {
-    this.el.btnGenerate.disabled = !this.isWorkerReady;
+    this.el.btnGenerate.disabled = !this.isWorkerReady || this.isVoiceEncoding || this.isGenerating;
     this.el.btnGenerate.classList.remove("is-loading");
+    this.el.btnGenerate.classList.toggle("voice-pending", this.isVoiceEncoding);
+    this.el.btnGenerate.setAttribute("aria-busy", this.isVoiceEncoding ? "true" : "false");
+    this.el.btnGenerate.querySelector(".btn-text").textContent =
+      this.isVoiceEncoding ? "Preparing voice…" : "Generate Audio";
     this.el.btnStop.style.display = "none";
     this.el.btnRecord.disabled = !this.isWorkerReady;
     this.el.btnUpload.disabled = !this.isWorkerReady;
@@ -895,7 +914,10 @@ class PocketVoice {
     } else if (state === "idle" && this.isWorkerReady) {
       this.el.btnGenerate.querySelector(".btn-text").textContent = "Generate Audio";
       this.el.btnGenerate.classList.remove("is-loading");
-      this.el.btnGenerate.disabled = false;
+      this.el.btnGenerate.disabled = this.isVoiceEncoding;
+      this.el.btnGenerate.classList.toggle("voice-pending", this.isVoiceEncoding);
+      this.el.btnGenerate.querySelector(".btn-text").textContent =
+        this.isVoiceEncoding ? "Preparing voice…" : "Generate Audio";
     }
   }
 
