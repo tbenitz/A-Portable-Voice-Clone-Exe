@@ -236,6 +236,7 @@ class Studio:
         row = self.frame(self.studio)
         row.pack(fill="x", pady=(0, 10))
         self.make_btn(row, "▶ Generate & listen", self.generate, primary=True).pack(side="left", padx=(0, 8))
+        self.make_btn(row, "↻ Replay last", self.replay_latest).pack(side="left", padx=4)
         self.make_btn(row, "Save WAV/MP3", self.export_latest).pack(side="left", padx=4)
         self.make_btn(row, "A / B comparison", self.compare).pack(side="left", padx=4)
         self.make_btn(row, "Paste clipboard", self.paste_clipboard).pack(side="left", padx=4)
@@ -295,7 +296,7 @@ class Studio:
         for title, cb in (("Use in Studio", self.use_selected), ("▶ Preview", self.preview_voice),
                           ("★ Favorite", self.favorite), ("Duplicate", self.duplicate_voice),
                           ("Edit details", self.edit_voice), ("Export .voicepack", self.export_voice),
-                          ("Import .voicepack", self.import_pack), ("Delete", self.delete_voice)):
+                          ("Import .voicepack", self.import_pack), ("Single-voice EXE", self.export_personal_exe), ("Delete", self.delete_voice)):
             self.make_btn(controls, title, cb).pack(side="left", padx=3)
         self.health_details = self.label(self.library_tab, "Import a voice to inspect signal health.")
         self.health_details.pack(fill="x", pady=9)
@@ -506,6 +507,28 @@ class Studio:
         voice = self.lib.import_voice(Path(file), consent=True)
         self.emit("refresh", voice["id"])
 
+    def export_personal_exe(self):
+        """Create a real one-voice GUI EXE from the bundled, verified runtime."""
+        from tkinter import filedialog
+        from .single_export import locate_template, export_library_voice
+        voice = self.selected_library_voice()
+        if not voice:
+            self.show_error("Select a voice from your library first.")
+            return
+        base = locate_template()
+        if not base:
+            self.show_error("SingleVoice-Base.exe is missing. Install the full studio from the release, or place the verified base EXE in the resources folder.")
+            return
+        destination = filedialog.asksaveasfilename(
+            title="Create single-voice portable Windows EXE",
+            defaultextension=".exe",
+            initialfile="PocketVoice-" + voice["name"][:40] + ".exe",
+            filetypes=[("Windows executable", "*.exe")])
+        if destination:
+            lang = self.lib.settings.get("language", "english_2026-04")
+            self.run_async("Embedding voice into Windows EXE", lambda: export_library_voice(
+                self.lib, voice["id"], base, destination, lang))
+
     def export_voice(self):
         from tkinter import filedialog, messagebox
         voice = self.selected_library_voice()
@@ -670,6 +693,14 @@ class Studio:
         voice = self.selected_library_voice()
         if voice:
             self.run_async("Playing reference", lambda: self.playback_file(self.lib.condition_path(voice)))
+
+    def replay_latest(self):
+        """Replay the saved waveform, never run ONNX again."""
+        if self.last_audio is None:
+            self.show_error("Generate a sample once, then Replay works without regenerating.")
+            return
+        audio, rate = self.last_audio.copy(), self.last_rate
+        self.run_async("Replaying saved audio", lambda: self.speaker(audio, rate))
 
     def export_latest(self):
         from tkinter import filedialog
