@@ -110,6 +110,31 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(restored["name"], original["name"])
         self.assertTrue(self.lib.condition_path(restored).is_file())
 
+    def test_model_bundled_voice_pack_restores_offline_assets(self):
+        voice = self.lib.add_voice(self.sample, "Offline", consent=True)
+        names = core.model_file_names("english_2026-04")
+        for relative in names:
+            file = self.lib.root / "models" / relative
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(b"fake-test-asset")
+        pack = self.root / "offline.voicepack"
+        self.lib.export_voice(voice["id"], pack, include_models=True)
+        with zipfile.ZipFile(pack) as z:
+            manifest = json.loads(z.read("manifest.json"))
+            self.assertTrue(manifest["model_assets_included"])
+            self.assertEqual(len([n for n in z.namelist() if n.startswith("model/")]), len(names))
+        fresh = core.Library(self.root / "separate-pc")
+        clone = fresh.import_voice(pack, consent=True)
+        self.assertTrue(fresh.condition_path(clone).exists())
+        for relative in names:
+            self.assertEqual((fresh.root / "models" / relative).read_bytes(), b"fake-test-asset")
+
+    def test_model_bundle_requires_cached_model(self):
+        voice = self.lib.add_voice(self.sample, "No cache", consent=True)
+        with self.assertRaises(ValueError):
+            self.lib.export_voice(voice["id"], self.root / "missing.voicepack",
+                                  include_models=True)
+
     def test_package_import_requires_permission(self):
         package = self.root / "unauthorized.voicepack"
         with self.assertRaises(ValueError):
