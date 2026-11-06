@@ -23,7 +23,7 @@ import sounddevice as sd
 import soundfile as sf
 
 from .core import (
-    AUDIO_EXTENSIONS, DEFAULT_SETTINGS, PRESETS, Library, PocketEngine, blend_audio,
+    AUDIO_EXTENSIONS, TEXT_EXTENSIONS, DEFAULT_SETTINGS, PRESETS, Library, PocketEngine, blend_audio,
     data_home, export_audio, parameters, transcribe_local,
 )
 
@@ -44,8 +44,10 @@ def cli_main(args):
         import imageio_ffmpeg
         import pocket_tts_onnx
         import faster_whisper
-        print("Runtime imports OK. FFmpeg:", imageio_ffmpeg.get_ffmpeg_exe())
-        print("Data directory:", library.root)
+        info = {"imports": ["pocket_tts_onnx", "faster_whisper", "imageio_ffmpeg"],
+                "ffmpeg": str(imageio_ffmpeg.get_ffmpeg_exe()),
+                "data_home": str(library.root)}
+        (library.root / "runtime-self-test.json").write_text(__import__("json").dumps(info, indent=2), encoding="utf-8")
         return 0
     if args.voice_id is None:
         raise ValueError("--voice-id is required for command-line generation.")
@@ -121,6 +123,7 @@ class Studio:
         self.channel_var = tk.StringVar(value=str(self.lib.settings.get("channels", 1)))
         self.bitrate_var = tk.StringVar(value=str(self.lib.settings.get("mp3_bitrate", 192)))
         self.safe_var = tk.BooleanVar(value=self.lib.settings.get("safe_mode", True))
+        self.tray_var = tk.BooleanVar(value=self.lib.settings.get("minimize_to_tray", False))
         self.mix_var = tk.StringVar(value="")
         self.mix_percent = tk.DoubleVar(value=self.lib.settings.get("mix_percent", 0))
         self._style()
@@ -361,6 +364,8 @@ class Studio:
             widget.grid(row=idx, column=1, sticky="w", pady=10)
         ttk.Checkbutton(container, text="Safe mode: limit pitch drift to ±8 semitones",
                         variable=self.safe_var).grid(row=8, column=0, columnspan=2, sticky="w", pady=12)
+        ttk.Checkbutton(container, text="Minimize to system tray instead of exiting",
+                        variable=self.tray_var).grid(row=8, column=2, sticky="w", padx=20)
         row = self.frame(container)
         row.grid(row=9, column=0, columnspan=2, sticky="w", pady=20)
         self.make_btn(row, "Save settings + rebind hotkey", self.save_settings, primary=True).pack(side="left", padx=4)
@@ -400,6 +405,7 @@ class Studio:
             "theme": self.theme_var.get(), "output_device": self.output_var.get(),
             "sample_rate": int(self.sample_rate_var.get()), "channels": int(self.channel_var.get()),
             "mp3_bitrate": int(self.bitrate_var.get()), "safe_mode": bool(self.safe_var.get()),
+            "minimize_to_tray": bool(self.tray_var.get()),
             "mix_percent": float(self.mix_percent.get()),
         })
         self.lib.save()
@@ -676,10 +682,10 @@ class Studio:
         if not voice or not text:
             self.show_error("Select a voice and enter comparison text.")
             return
-        self.run_async("A/B comparison", lambda: self.compare_job(voice, text))
+        config = self.render_settings()
+        self.run_async("A/B comparison", lambda: self.compare_job(voice, text, config))
 
-    def compare_job(self, voice, text):
-        base = self.render_settings()
+    def compare_job(self, voice, text, base):
         base.update({"speed": 1, "pitch": 0, "clarity": 0})
         files = []
         for index, preset in enumerate(("Balanced", "Ultra")):
@@ -876,7 +882,16 @@ class Studio:
     def stop(self):
         self.cancel.set()
         if self.record_stream:
-            self.stop_record()
+            recording = self.record_stream
+            self.record_stream = None
+            self.record_mode = None
+            try:
+                recording.abort(ignore_errors=True)
+                recording.close()
+            except Exception:
+                pass
+            with self.record_lock:
+                self.record_frames = []
         if self.active_stream:
             try:
                 self.active_stream.abort(ignore_errors=True)
