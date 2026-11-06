@@ -4,6 +4,7 @@
 #define AppExeName "VoiceCloneStudio.exe"
 
 [Setup]
+SourceDir=..
 AppId={{964F1BD8-FA40-4EBC-BC2A-4137AC0299D3}
 AppName={#AppName}
 AppVersion={#AppVersion}
