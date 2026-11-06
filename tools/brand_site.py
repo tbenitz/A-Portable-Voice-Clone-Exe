@@ -80,7 +80,7 @@ NEW_CONDITIONING = """      const rawAudio = audioBuffer.getChannelData(0);
       const stepFrames = Math.max(1, Math.floor(inputRate * 4));
       const sampleStride = Math.max(1, Math.floor(inputRate / 400));
       let bestStart = 0, bestScore = -1;
-      for (let start = 0; start < rawAudio.length; start += stepFrames) {
+      for (let start = 0; start <= Math.max(0, rawAudio.length - excerptFrames); start += stepFrames) {
         const end = Math.min(rawAudio.length, start + excerptFrames);
         let sum = 0, active = 0, clippedN = 0, count = 0;
         for (let i = start; i < end; i += sampleStride) {
