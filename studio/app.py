@@ -1041,6 +1041,7 @@ class Studio:
 
     def show_floating(self):
         if self.floating and self.floating.winfo_exists():
+            self.floating.deiconify()
             self.floating.lift()
             return
         self.floating = self.tk.Toplevel(self.root)
