@@ -42,6 +42,31 @@ def main():
                          "#save-mp3", "#download-personal", "#personal-name"]:
                 assert page.locator(name).count() == 1, f"Missing browser control {name}"
 
+            # A saved voice's embedding may take time. Generate must become
+            # visibly GREY and unclickable until worker voice_encoded arrives.
+            state = page.evaluate("""async () => {
+              const app = window.__pocketApp;
+              const priorWorker = app.worker;
+              const priorReady = app.isWorkerReady;
+              app.isWorkerReady = true;
+              app.worker = {postMessage(){}};
+              await app.loadSavedVoice({id:999, name:"Pending-test voice",
+                pcm:new Float32Array(24000).fill(.1)});
+              const button = document.getElementById("btn-generate");
+              const result = {disabled:button.disabled,
+                busy:button.getAttribute("aria-busy"),
+                pending:button.classList.contains("voice-pending"),
+                background:getComputedStyle(button).backgroundColor};
+              app.isVoiceEncoding = false;
+              app.isLoadingSavedVoice = false;
+              app.worker = priorWorker;
+              app.isWorkerReady = priorReady;
+              app.resetUI();
+              return result;
+            }""")
+            assert state["disabled"] and state["pending"] and state["busy"] == "true", state
+            assert state["background"] == "rgb(49, 68, 86)", state
+            print("PASS: Generate button disabled and grey during voice loading", flush=True)
             # Test the EXACT user's requirement: replay and both download buttons
             # use existing PCM, no second model call.
             state = page.evaluate("""() => {
@@ -88,11 +113,24 @@ def main():
                   return {enabled:!document.getElementById('download-personal').disabled};
                 }""")
                 assert result["enabled"], result
-                with page.expect_download(timeout=30000) as download_result:
+                # Reproduce the missing Pages build-info bug. Block local
+                # metadata and EXE, then serve the verified GitHub fallback.
+                manifest = (ROOT / "web" / "download" / "starter-build.json").read_text()
+                context.route("**/web/download/starter-build.json",
+                              lambda route: route.fulfill(status=404, body="Not Found"))
+                context.route("**/web/download/SingleVoice-Starter.exe",
+                              lambda route: route.fulfill(status=404, body="Not Found"))
+                context.route("https://raw.githubusercontent.com/**/starter-build.json",
+                              lambda route: route.fulfill(status=200, body=manifest,
+                                headers={"access-control-allow-origin":"*","content-type":"application/json"}))
+                context.route("https://raw.githubusercontent.com/**/SingleVoice-Starter.exe",
+                              lambda route: route.fulfill(status=200, body=starter.read_bytes(),
+                                headers={"access-control-allow-origin":"*","content-type":"application/octet-stream"}))
+                with page.expect_download(timeout=45000) as download_result:
                     page.locator("#download-personal").click()
                 exe = download_result.value.path().read_bytes()
                 assert exe[:2] == b"MZ" and exe[-16:-8] == b"CVRCFG01", "Personalized EXE invalid"
-                print("PASS: browser personalized standalone EXE assembled locally", flush=True)
+                print("PASS: missing metadata recovered via verified GitHub fallback; single-voice EXE created", flush=True)
             else:
                 print("Starter pending publication by Windows build: browser EXE test deferred", flush=True)
             browser.close()
