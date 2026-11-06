@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class WebBuildTests(unittest.TestCase):
     def test_audio_players_and_independent_replay(self):
-        ui = (ROOT / "web/studio-ui.html").read_text()
-        js = (ROOT / "web/studio-addon.js").read_text()
+        ui = (ROOT / "web/studio-ui.html").read_text(encoding="utf-8")
+        js = (ROOT / "web/studio-addon.js").read_text(encoding="utf-8")
         self.assertIn('id="reference-player"', ui)
         self.assertIn('id="clone-player"', ui)
         self.assertIn('id="save-mp3"', ui)
@@ -35,8 +35,8 @@ class WebBuildTests(unittest.TestCase):
         self.assertNotIn('generated.addEventListener("play", app.generate)', js)
 
     def test_windows_downloads_are_real_not_fake_ui(self):
-        js = (ROOT / "web/studio-addon.js").read_text()
-        ui = (ROOT / "web/studio-ui.html").read_text()
+        js = (ROOT / "web/studio-addon.js").read_text(encoding="utf-8")
+        ui = (ROOT / "web/studio-ui.html").read_text(encoding="utf-8")
         self.assertIn("crypto.subtle.digest", js)
         self.assertIn("SingleVoice-Base.exe", js)
         self.assertIn("CVRCFG01", js)
@@ -46,7 +46,7 @@ class WebBuildTests(unittest.TestCase):
         self.assertIn("Generated clone", ui)
 
     def test_pinned_working_app_used_directly(self):
-        build = (ROOT / "tools/brand_site.py").read_text()
+        build = (ROOT / "tools/brand_site.py").read_text(encoding="utf-8")
         self.assertIn("new PocketVoice();", build)
         self.assertIn("window.__pocketApp = new PocketVoice();", build)
         self.assertIn("studio-addon.js", build)
@@ -54,19 +54,19 @@ class WebBuildTests(unittest.TestCase):
         self.assertIn("theme.css", build)
 
     def test_installer_is_a_real_installer(self):
-        iss = (ROOT / "installer/VoiceCloneStudio.iss").read_text()
+        iss = (ROOT / "installer/VoiceCloneStudio.iss").read_text(encoding="utf-8")
         self.assertIn("UninstallDisplayIcon", iss)
         self.assertIn("VoiceCloneStudio-Setup", iss)
         self.assertIn("Flags: recursesubdirs", iss)
 
     def test_full_studio_exports_real_single_exe(self):
-        app = (ROOT / "studio/app.py").read_text()
+        app = (ROOT / "studio/app.py").read_text(encoding="utf-8")
         self.assertIn("export_library_voice(", app)
         self.assertIn('("Single-voice EXE", self.export_personal_exe)', app)
         self.assertIn("def replay_latest(self):", app)
 
     def test_compact_gui_has_actual_generation_and_replay(self):
-        ui = (ROOT / "studio/single_voice.py").read_text()
+        ui = (ROOT / "studio/single_voice.py").read_text(encoding="utf-8")
         self.assertIn("self.engine.synthesize(", ui)
         self.assertIn("def replay(self):", ui)
         self.assertIn("def export_audio(self):", ui)
@@ -77,12 +77,12 @@ class WebBuildTests(unittest.TestCase):
         source = ROOT / "web/app.js"
         if not source.exists() or not index.exists():
             self.skipTest("Pinned Pocket app is copied only during deploy")
-        page = index.read_text()
+        page = index.read_text(encoding="utf-8")
         self.assertIn("studio-addon.js", page)
         self.assertIn("vendor/lame.min.js", page)
         self.assertIn('href="./theme.css"', page)
         self.assertIn("Voice Clone Studio", page)
-        self.assertIn("window.__pocketApp = new PocketVoice();", source.read_text())
+        self.assertIn("window.__pocketApp = new PocketVoice();", source.read_text(encoding="utf-8"))
 
 
 class PersonalExePackageTests(unittest.TestCase):
