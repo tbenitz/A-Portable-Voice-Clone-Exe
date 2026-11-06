@@ -152,3 +152,12 @@ body::after { content:""; display:block; position:fixed; inset:0; background-ima
   .privacy-strip{justify-content:flex-start}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.studio-btn{transition:none}.studio-btn:hover{transform:none}}
+
+.studio-nav{height:68px;position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 max(25px,calc((100vw - 1220px)/2));background:rgba(7,13,23,.9);backdrop-filter:blur(20px);border-bottom:1px solid #243d56}
+.studio-logo{display:flex;align-items:center;gap:4px;text-decoration:none;font:850 15px/1 var(--sans);color:#eafaff;letter-spacing:-.02em}
+.studio-logo span:not(.logo-mark){color:#75ddef}.studio-logo .logo-mark{margin-right:9px;color:#70e1f1;font-size:28px}
+.studio-nav nav{display:flex;gap:28px;align-items:center}
+.studio-nav nav a{color:#acc7d9;font-size:13px;font-weight:650;text-decoration:none;transition:color .2s}
+.studio-nav nav a:hover{color:#7de6f6}
+#hero{padding-top:90px}
+@media(max-width:700px){.studio-nav{padding:0 16px;height:58px}.studio-nav nav{gap:12px}.studio-nav nav a{font-size:11px}.studio-nav nav a:nth-child(2),.studio-nav nav a:last-child{display:none}#hero{padding-top:62px}}
