@@ -14,6 +14,7 @@ import numpy as np
 import soundfile as sf
 
 from studio.single_export import generate_single_exe, verify_template
+from studio.clipboard_control import ClipboardSpeechQueue, MAX_CHARS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,40 @@ class WebBuildTests(unittest.TestCase):
         self.assertIn('href="./theme.css"', page)
         self.assertIn("Pocket Voice Studio", page)
         self.assertIn("window.__pocketApp = new PocketVoice();", source.read_text(encoding="utf-8"))
+
+
+class ClipboardControlTests(unittest.TestCase):
+    def test_existing_clipboard_never_auto_speaks(self):
+        queue = ClipboardSpeechQueue()
+        self.assertIsNone(queue.observe("private text already copied"))
+        self.assertIsNone(queue.observe("private text already copied"))
+        self.assertEqual(queue.observe("new phrase"), "new phrase")
+
+    def test_multiple_unique_copies_queue_in_order(self):
+        queue = ClipboardSpeechQueue(max_items=3)
+        for value in ("one", "two", "three"):
+            self.assertTrue(queue.enqueue(value))
+        self.assertFalse(queue.enqueue("three"))
+        self.assertEqual([queue.pop(), queue.pop(), queue.pop()], ["one", "two", "three"])
+        self.assertIsNone(queue.pop())
+
+    def test_queue_bounds_and_stop_clears(self):
+        queue = ClipboardSpeechQueue(max_items=2)
+        self.assertFalse(queue.enqueue("x" * (MAX_CHARS + 1)))
+        for value in ("one", "two", "three"):
+            queue.enqueue(value)
+        self.assertEqual([queue.pop(), queue.pop()], ["two", "three"])
+        queue.enqueue("more")
+        queue.clear()
+        self.assertEqual(len(queue), 0)
+
+    def test_personal_gui_exposes_clipboard_options(self):
+        content = (ROOT / "studio/single_voice.py").read_text(encoding="utf-8")
+        for marker in ("def _check_clipboard", "def _install_hotkeys",
+                       "def speak_clipboard", "def edit_hotkeys",
+                       "def _build_menu", "def _save_preferences"):
+            self.assertIn(marker, content)
+
 
 
 class PersonalExePackageTests(unittest.TestCase):

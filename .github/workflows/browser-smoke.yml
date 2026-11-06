@@ -1,0 +1,28 @@
+name: Browser Voice Studio smoke test
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'tests/browser_smoke.py'
+      - '.github/workflows/browser-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Playwright test runner
+        run: python -m pip install playwright
+      - name: Check Chrome and test actual browser controls and release CORS
+        run: |
+          which google-chrome || which chromium
+          python tests/browser_smoke.py

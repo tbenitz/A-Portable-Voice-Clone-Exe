@@ -69,6 +69,7 @@ jobs:
           --collect-all safetensors --collect-all huggingface_hub
           --collect-all scipy --collect-all sounddevice
           --collect-all soundfile --collect-all imageio_ffmpeg
+          --collect-all pynput
           single_voice_runner.py
       - name: Frozen compact UI dependency smoke test
         shell: pwsh

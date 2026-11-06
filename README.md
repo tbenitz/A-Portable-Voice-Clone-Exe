@@ -27,7 +27,7 @@ Browser inference is pinned to Hemanth HM's Pocket Voice revision a4496c429f1dcd
 
 ### Personal Edition — a single portable executable
 
-A personalized Windows x64 EXE contains the native launcher, an embedded ZIP of the frozen Pocket inference GUI, and the specific voice's WAV. It opens its **own compact window**, not a web view: fixed cloned voice, text box, Real-time/Balanced/High/Ultra, speed/pitch/stability sliders, generation with streaming when possible, **Replay without regeneration**, WAV/MP3 exports, Stop, always-on-top and keyboard shortcuts.
+A personalized Windows x64 EXE contains the native launcher, an embedded ZIP of the frozen Pocket inference GUI, and the specific voice's WAV. It opens its **own compact window**, not a web view: fixed cloned voice, text box, Real-time/Balanced/High/Ultra, speed/pitch/stability sliders, generation with streaming when possible, **Replay without regeneration**, WAV/MP3 exports, Stop, always-on-top, menus, opt-in automatic speaking of new clipboard text, and customizable global hotkeys to read the current clipboard or replay the last recording. Clipboard watcher starts off. Clipboard contents are never written to settings.
 
 The EXE reuses an extracted runtime under the user's local app data and downloads Pocket ONNX model weights once before subsequent offline operation. **No Python installation or external project checkout is necessary.** You can copy the generated EXE to another Windows x64 machine.
 
