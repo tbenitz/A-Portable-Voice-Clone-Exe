@@ -1,74 +1,219 @@
-name: Build portable studio
+name: Build Windows apps and publish voice studio
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: desktop-and-pages
+  cancel-in-progress: true
 
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install inference, ASR, audio and GUI dependencies
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install voice runtime, local ASR and build tools
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python scripts/fetch_inference.py
-          python -m py_compile run_studio.py studio/app.py studio/core.py studio/upstream_reader.py pocket_tts_onnx.py
-      - name: Run portable voice studio regression tests
+          python -m compileall -q studio scripts
+          python -m py_compile run_studio.py single_voice_runner.py pocket_tts_onnx.py
+      - name: Test real files, voice package import and exporter safety
         shell: pwsh
         run: python -m unittest discover -s tests -v
-      - name: Build portable Windows folder
+      - name: Build full desktop studio (self-contained Python runtime)
         shell: pwsh
         run: >
           pyinstaller --clean --noconfirm --onedir --windowed
-          --name VoiceCloneStudio
-          --paths .
+          --name VoiceCloneStudio --paths .
           --hidden-import pocket_tts_onnx
-          --collect-all onnxruntime
-          --collect-all sentencepiece
-          --collect-all safetensors
-          --collect-all huggingface_hub
-          --collect-all scipy
-          --collect-all sounddevice
-          --collect-all soundfile
-          --collect-all imageio_ffmpeg
-          --collect-all faster_whisper
-          --collect-all ctranslate2
-          --collect-all tokenizers
-          --collect-all av
-          --collect-all pynput
-          --collect-all pystray
-          --collect-all PIL
+          --collect-all onnxruntime --collect-all sentencepiece
+          --collect-all safetensors --collect-all huggingface_hub
+          --collect-all scipy --collect-all sounddevice
+          --collect-all soundfile --collect-all imageio_ffmpeg
+          --collect-all faster_whisper --collect-all ctranslate2
+          --collect-all tokenizers --collect-all av
+          --collect-all pynput --collect-all pystray --collect-all PIL
           run_studio.py
-      - name: Check Windows executable startup without console
+      - name: Run actual frozen full studio (no-console) self test
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $exe = (Resolve-Path 'dist/VoiceCloneStudio/VoiceCloneStudio.exe').Path
-          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Frozen executable self-test failed: $($process.ExitCode)" }
+          $exe = (Resolve-Path "dist/VoiceCloneStudio/VoiceCloneStudio.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Full suite executable failed startup (exit $($p.ExitCode))" }
           $marker = 'dist/VoiceCloneStudio/VoiceData/runtime-self-test.json'
-          if (-not (Test-Path $marker)) { throw "Self-test marker missing: $marker" }
-          Get-Content $marker
-      - name: Include usage information
+          if (-not (Test-Path $marker)) { throw 'Full studio runtime self-test marker missing' }
+      - name: Build compact one-voice GUI runtime
+        shell: pwsh
+        run: >
+          pyinstaller --clean --noconfirm --onedir --windowed
+          --name voice_ui --paths .
+          --hidden-import pocket_tts_onnx
+          --collect-all onnxruntime --collect-all sentencepiece
+          --collect-all safetensors --collect-all huggingface_hub
+          --collect-all scipy --collect-all sounddevice
+          --collect-all soundfile --collect-all imageio_ffmpeg
+          single_voice_runner.py
+      - name: Frozen compact UI dependency smoke test
         shell: pwsh
         run: |
+          $exe = (Resolve-Path "dist/voice_ui/voice_ui.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Compact GUI runtime imports failed (exit $($p.ExitCode))" }
+      - name: Publish native AOT single-EXE launcher
+        shell: pwsh
+        run: |
+          dotnet publish desktop/single_launcher/SingleVoiceLauncher.csproj -c Release -r win-x64 -p:PublishAot=true -o launcher-out
+          if (-not (Test-Path launcher-out/SingleVoiceLauncher.exe)) { throw 'Native compact EXE launcher missing' }
+      - name: Bundle single-voice runtime inside one Windows EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path web/download | Out-Null
+          Compress-Archive -Path dist/voice_ui/* -DestinationPath voice-runtime.zip -CompressionLevel Optimal
+          python scripts/append_bundle.py launcher-out/SingleVoiceLauncher.exe voice-runtime.zip web/download/SingleVoice-Base.exe
+          $binary = 'web/download/SingleVoice-Base.exe'
+          $metadata = @{
+            sha256 = (Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            size = (Get-Item $binary).Length
+            revision = $env:GITHUB_SHA.Substring(0, 10)
+            architecture = 'windows-x64'
+          } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'web/download/build-info.json'), $metadata, (New-Object System.Text.UTF8Encoding($false)))
+      - name: Launch base and personalized EXE on actual Windows runner
+        shell: pwsh
+        run: |
+          $base = (Resolve-Path 'web/download/SingleVoice-Base.exe').Path
+          $p = Start-Process -FilePath $base -ArgumentList '--self-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Native base EXE failed self-test (exit $($p.ExitCode))" }
+          python scripts/package_smoke.py --template $base --output Personal-Voice-Test.exe
+      - name: Add single-voice EXE template to installed full studio
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/VoiceCloneStudio/resources | Out-Null
+          Copy-Item web/download/SingleVoice-Base.exe dist/VoiceCloneStudio/resources/SingleVoice-Base.exe
           Copy-Item README.md dist/VoiceCloneStudio/README.md
+          Copy-Item LICENSE dist/VoiceCloneStudio/LICENSE
           New-Item -ItemType Directory -Force -Path dist/VoiceCloneStudio/VoiceData | Out-Null
-          Set-Content -Path dist/VoiceCloneStudio/VoiceData/README.txt -Value 'Portable data and cached model weights are saved here on first launch.'
+          Set-Content -Path dist/VoiceCloneStudio/VoiceData/README.txt -Value 'Local voice library and model cache. Portable when folder is writable.'
+      - name: Install Inno Setup 6 CLI if necessary
+        shell: pwsh
+        run: |
+          $path = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $path)) {
+            choco install innosetup --yes --no-progress --limit-output
+          }
+          if (-not (Test-Path $path)) { throw "Inno Setup compiler ISCC.exe unavailable" }
+      - name: Compile actual installable Windows setup and uninstaller
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          & $iscc 'installer/VoiceCloneStudio.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+          if (-not (Test-Path installer-out/VoiceCloneStudio-Setup.exe)) { throw 'Installer output is missing' }
+      - name: Install silently, verify installed EXE and uninstall
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'PocketVoiceInstallTest'
+          $setup = (Resolve-Path 'installer-out/VoiceCloneStudio-Setup.exe').Path
+          $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR='+$destination),'/TASKS=') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer failed (exit $($p.ExitCode))" }
+          $app = Join-Path $destination 'VoiceCloneStudio.exe'
+          if (-not (Test-Path $app)) { throw 'Installed VoiceCloneStudio.exe is missing' }
+          if (-not (Test-Path (Join-Path $destination 'resources/SingleVoice-Base.exe'))) { throw 'Installer missing single-voice generator' }
+          $p = Start-Process -FilePath $app -ArgumentList '--self-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installed voice studio failed self-test (exit $($p.ExitCode))" }
+          $uninstall = Join-Path $destination 'unins000.exe'
+          if (-not (Test-Path $uninstall)) { throw 'Windows uninstaller missing' }
+          Write-Host "PASS: actual installer, runtime and uninstaller checked."
       - uses: actions/upload-artifact@v4
         with:
-          name: Portable-Voice-Clone-Windows-x64
+          name: VoiceCloneStudio-Windows-Setup
+          path: installer-out/VoiceCloneStudio-Setup.exe
+          retention-days: 30
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoiceCloneStudio-Portable-Folder
           path: dist/VoiceCloneStudio/
           retention-days: 30
           compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoiceCloneStudio-Browser-Engine
+          path: web/download/
+          retention-days: 30
+          compression-level: 0
+      - name: Publish installer as a GitHub Release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "studio-v1.0.${{ github.run_number }}"
+          gh release create $tag "installer-out/VoiceCloneStudio-Setup.exe" "web/download/SingleVoice-Base.exe" --repo "${{ github.repository }}" --title "Pocket Voice Studio 1.0.${{ github.run_number }}" --notes "Windows x64 full installer (no Python required), plus a personal single-voice EXE template. Use the browser to embed your own voice in the template." --latest
+
+  deploy:
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: VoiceCloneStudio-Browser-Engine
+          path: web/download
+      - name: Bundle exact working Pocket TTS web app
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init /tmp/pocket-voice-working
+          git -C /tmp/pocket-voice-working remote add origin https://github.com/hemanth/pocket-voice.git
+          git -C /tmp/pocket-voice-working fetch --depth 1 origin a4496c429f1dcd6ea8faef55a21dc4b7d45636a9
+          git -C /tmp/pocket-voice-working checkout --detach FETCH_HEAD
+          for file in index.html app.js inference-worker.js main-thread-worker-shim.js PCMPlayerWorklet.js EventEmitter.js sentencepiece.js style.css favicon.svg; do
+            cp "/tmp/pocket-voice-working/$file" "web/$file"
+          done
+          mkdir -p web/vendor
+          curl --fail --location --silent --show-error "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js" --output web/vendor/lame.min.js
+          curl --fail --location --silent --show-error "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/LICENSE" --output web/vendor/LAME_LICENSE.txt
+          test -s web/vendor/lame.min.js
+          python tools/brand_site.py
+          printf '%s\n' \
+            "Website adaptation and native Windows apps: tbenitz (https://github.com/tbenitz)" \
+            "Original working browser app: Hemanth HM Pocket Voice (MIT), https://github.com/hemanth/pocket-voice" \
+            "Kyutai Pocket TTS: https://github.com/kyutai-labs/pocket-tts" \
+            "ONNX inference and weights: https://huggingface.co/KevinAHM/pocket-tts-onnx" \
+            "Browser MP3 encoder: lamejs 1.2.1 (LGPL-3.0), license in /vendor/LAME_LICENSE.txt" > web/ATTRIBUTION.txt
+      - name: Browser syntax, export and verified-page smoke checks
+        shell: bash
+        run: |
+          node --check web/app.js
+          node --check web/studio-addon.js
+          python -m unittest discover -s tests -p 'test_site.py' -v
+          test -s web/download/SingleVoice-Base.exe
+          test -s web/download/build-info.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deploy
+        uses: actions/deploy-pages@v4
