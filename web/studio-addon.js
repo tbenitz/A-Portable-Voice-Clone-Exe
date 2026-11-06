@@ -194,36 +194,74 @@
     return new TextDecoder("ascii").decode(bytes.subarray(start, start + size));
   }
   async function loadTemplate() {
-    message("Checking the latest verified Windows single-voice template...");
-    const response = await fetch("./download/build-info.json", {cache: "no-store"});
-    if (!response.ok) throw new Error("Windows build metadata has not been published.");
-    const metadata = await response.json();
-    if (metadata.architecture !== "windows-x64" || !/^[a-f0-9]{64}$/i.test(metadata.sha256))
-      throw new Error("Windows template build metadata is invalid.");
-    const binaryResponse = await fetch("./download/SingleVoice-Base.exe", {cache: "no-store"});
-    if (!binaryResponse.ok) throw new Error("Single-voice EXE engine unavailable (HTTP " + binaryResponse.status + ").");
+    message("Checking the latest released Pocket Voice Windows engine...");
+    const releaseResponse = await fetch(
+      "https://api.github.com/repos/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest",
+      {headers: {"Accept": "application/vnd.github+json"}, cache: "no-store"}
+    );
+    if (!releaseResponse.ok) {
+      throw new Error("Could not check GitHub Releases (HTTP " + releaseResponse.status + ").");
+    }
+    const release = await releaseResponse.json();
+    const asset = (release.assets || []).find(item => item.name === "SingleVoice-Base.exe");
+    const hash = typeof asset?.digest === "string" && asset.digest.startsWith("sha256:")
+      ? asset.digest.slice(7) : "";
+    if (!asset || !/^[a-f0-9]{64}$/i.test(hash) || !asset.size) {
+      throw new Error("The released Windows engine has no verified SHA-256 checksum.");
+    }
+    const metadata = {size: asset.size, sha256: hash, revision: release.tag_name,
+                      architecture: "windows-x64"};
+    message("Downloading the verified Windows runtime (" +
+            Math.round(asset.size / 1048576) + " MB). Your voice stays on this device...");
+    // GitHub's public REST assets endpoint accepts browser CORS and may redirect
+    // to its release asset CDN. The user's voice is NEVER in this request.
+    let binaryResponse;
+    try {
+      binaryResponse = await fetch(asset.url, {
+        headers: {"Accept": "application/octet-stream"},
+        redirect: "follow", cache: "no-store"
+      });
+    } catch (error) {
+      throw new Error("GitHub blocked the cross-origin engine download. You can still " +
+                      "install the full Studio and create the personalized EXE there. " +
+                      String(error?.message || error));
+    }
+    if (!binaryResponse.ok) {
+      throw new Error("Windows runtime download failed (HTTP " + binaryResponse.status + ").");
+    }
+    if ((binaryResponse.headers.get("content-type") || "").includes("application/json")) {
+      throw new Error("GitHub returned asset metadata rather than its binary. " +
+                      "Use the installed Studio for EXE exports.");
+    }
     const binary = await binaryResponse.arrayBuffer();
     const bytes = new Uint8Array(binary);
     const view = new DataView(binary);
-    if (binary.byteLength !== metadata.size || binary.byteLength < 1000000)
-      throw new Error("Single-voice runtime EXE is incomplete.");
+    if (binary.byteLength !== metadata.size || binary.byteLength < 1000000) {
+      throw new Error("Single-voice Windows engine is incomplete.");
+    }
     const peAt = view.getUint32(0x3c, true);
-    if (ascii(bytes, 0, 2) !== "MZ" ||
+    if (ascii(bytes, 0, 2) !== "MZ" || peAt < 64 || peAt + 6 > bytes.length ||
         ascii(bytes, peAt, 4) !== "PE\u0000\u0000" ||
-        view.getUint16(peAt + 4, true) !== 0x8664)
+        view.getUint16(peAt + 4, true) !== 0x8664) {
       throw new Error("Expected a valid Windows x64 executable.");
-    if (ascii(bytes, bytes.length - 16, 8) !== "CVRZIP01")
+    }
+    if (ascii(bytes, bytes.length - 16, 8) !== "CVRZIP01") {
       throw new Error("Embedded Pocket voice runtime not found.");
+    }
     const zipSize = Number(view.getBigUint64(bytes.length - 8, true));
     if (zipSize < 1000000 || zipSize > bytes.length - 1024 ||
-        ascii(bytes, bytes.length - 16 - zipSize, 2) !== "PK")
-      throw new Error("Pocket ZIP runtime failed structure verification.");
-    const hash = await crypto.subtle.digest("SHA-256", binary);
-    const checksum = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
-    if (checksum !== metadata.sha256.toLowerCase())
-      throw new Error("Downloaded Pocket voice executable failed SHA-256 verification.");
+        ascii(bytes, bytes.length - 16 - zipSize, 2) !== "PK") {
+      throw new Error("Pocket runtime ZIP failed structure verification.");
+    }
+    message("Validating downloaded engine SHA-256 before embedding your voice...");
+    const sha = await crypto.subtle.digest("SHA-256", binary);
+    const checksum = [...new Uint8Array(sha)].map(v => v.toString(16).padStart(2, "0")).join("");
+    if (checksum !== metadata.sha256.toLowerCase()) {
+      throw new Error("Downloaded Windows engine failed SHA-256 verification.");
+    }
     return {binary, metadata};
   }
+
   btnExe.addEventListener("click", async () => {
     if (!canExportExe()) { message("Generate a sample with your cloned voice, then confirm consent.", true); return; }
     busy = true; update();
