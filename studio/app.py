@@ -122,6 +122,7 @@ class Studio:
         self.sample_rate_var = tk.StringVar(value=str(self.lib.settings.get("sample_rate", 24000)))
         self.channel_var = tk.StringVar(value=str(self.lib.settings.get("channels", 1)))
         self.bitrate_var = tk.StringVar(value=str(self.lib.settings.get("mp3_bitrate", 192)))
+        self.history_limit_var = tk.StringVar(value=str(self.lib.settings.get("history_limit", 50)))
         self.safe_var = tk.BooleanVar(value=self.lib.settings.get("safe_mode", True))
         self.tray_var = tk.BooleanVar(value=self.lib.settings.get("minimize_to_tray", False))
         self.mix_var = tk.StringVar(value="")
@@ -377,6 +378,9 @@ class Studio:
                    "For OBS or Discord, choose an installed virtual audio cable as the output device.").grid(row=11, column=0, columnspan=3, sticky="w", pady=9)
         self.label(container, "Hotkey syntax example: <ctrl>+<alt>+v   (using pynput). "
                    "Mic capture → Whisper transcription → Pocket synthesis on release.").grid(row=12, column=0, columnspan=3, sticky="w", pady=9)
+        self.label(container, "History entries to retain (1–500)").grid(row=13, column=0, sticky="w", pady=9)
+        ttk.Combobox(container, textvariable=self.history_limit_var, state="readonly",
+                     values=["10", "25", "50", "100", "200", "500"], width=18).grid(row=13, column=1, sticky="w")
 
     def output_devices(self):
         try:
@@ -407,6 +411,7 @@ class Studio:
             "mp3_bitrate": int(self.bitrate_var.get()), "safe_mode": bool(self.safe_var.get()),
             "minimize_to_tray": bool(self.tray_var.get()),
             "mix_percent": float(self.mix_percent.get()),
+            "history_limit": int(self.history_limit_var.get()),
         })
         self.lib.save()
 
@@ -1046,8 +1051,8 @@ class Studio:
             return
         self.floating = self.tk.Toplevel(self.root)
         self.floating.title("Voice control")
-        self.floating.geometry("310x156")
-        self.floating.minsize(235, 76)
+        self.floating.geometry("350x242")
+        self.floating.minsize(265, 78)
         self.floating.configure(bg=self.bg)
         self.floating.attributes("-topmost", True)
         self.mini_status = self.tk.StringVar(value="Ready")
@@ -1061,6 +1066,19 @@ class Studio:
         self.make_btn(self.mini_controls, "● Mic / Stop", lambda: self.stop_record() if self.record_stream else self.start_record("speech")).pack(side="left", padx=3)
         self.make_btn(self.mini_controls, "▶ Speak", self.generate).pack(side="left", padx=3)
         self.make_btn(self.mini_controls, "■", self.stop).pack(side="left", padx=3)
+        self.mini_sliders = self.frame(self.floating, padding=(12, 2))
+        self.mini_sliders.pack(fill="x")
+        for title, var, low, high, resolution in (
+            ("Speed", self.speed, .5, 2, .05),
+            ("Stability", self.stability, 0, 100, 5),
+        ):
+            line = self.frame(self.mini_sliders)
+            line.pack(fill="x")
+            self.label(line, title).pack(side="left")
+            self.tk.Scale(line, from_=low, to=high, resolution=resolution,
+                          variable=var, orient="horizontal", showvalue=True,
+                          length=190, bg=self.bg, fg=self.fg,
+                          highlightthickness=0, troughcolor=self.card).pack(side="right")
         self.label(self.floating, "", textvariable=self.mini_status).pack(anchor="w", padx=12, pady=5)
         self.floating.protocol("WM_DELETE_WINDOW", self.floating.withdraw)
         self.update_floating()
@@ -1076,10 +1094,12 @@ class Studio:
         self.collapsed = not self.collapsed
         if self.collapsed:
             self.mini_controls.pack_forget()
-            self.floating.geometry("310x76")
+            self.mini_sliders.pack_forget()
+            self.floating.geometry("350x78")
         else:
             self.mini_controls.pack(fill="x", before=self.floating.winfo_children()[-1])
-            self.floating.geometry("310x156")
+            self.mini_sliders.pack(fill="x", before=self.floating.winfo_children()[-1])
+            self.floating.geometry("350x242")
 
     def edit_dictionary(self):
         from tkinter import messagebox
