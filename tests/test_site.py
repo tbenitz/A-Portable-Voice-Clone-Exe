@@ -42,7 +42,7 @@ class WebBuildTests(unittest.TestCase):
         self.assertIn("SingleVoice-Starter.exe", js)
         self.assertIn("starter-build.json", js)
         self.assertIn("CVRCFG01", js)
-        self.assertIn("CVRZIP01", js)
+        # The thin launcher downloads the full runtime on Windows; no embedded ZIP is required.
         self.assertIn("voice_wav_b64", js)
         self.assertIn("VoiceCloneStudio-Setup.exe", ui)
         self.assertIn("Generated clone", ui)
