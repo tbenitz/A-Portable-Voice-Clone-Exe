@@ -68,8 +68,11 @@
       refUrl = audioLink(app.lastClonedPCM);
       original.src = refUrl;
       original.load();
-      el("reference-note").textContent =
-        (app.lastClonedPCM.length / PCM_RATE).toFixed(1) + " seconds of your original recorded voice. Replay any time.";
+      const health = app.referenceHealth;
+      el("reference-note").textContent = health ?
+        ("Voice health " + health.score + "/100 (signal estimate) · " + health.originalDuration.toFixed(1) +
+         "s uploaded · excerpt starts at " + health.start + "s · " + health.hint) :
+        ((app.lastClonedPCM.length / PCM_RATE).toFixed(1) + " seconds of the original reference. Replay any time.");
     } else {
       el("reference-note").textContent = "Choose the cloned voice to hear its original reference recording.";
     }
