@@ -70,6 +70,7 @@ def main():
             # Test cross-origin CORS from an actual web page, not Node.js (which
             # skips browser CORS). Fetch only response headers of the large asset.
             probe = page.evaluate("""async () => {
+              let stage="release_api";
               try {
                 const api='https://api.github.com/repos/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest';
                 const response=await fetch(api,{cache:'no-store'});
@@ -78,6 +79,7 @@ def main():
                 const asset=(release.assets||[]).find(x=>x.name==='SingleVoice-Base.exe');
                 if(!asset) throw new Error('Base EXE missing from release');
                 const control=new AbortController();
+                stage="asset_binary";
                 const binary=await fetch(asset.url,{
                     headers:{Accept:'application/octet-stream'},
                     redirect:'follow',signal:control.signal
@@ -87,7 +89,7 @@ def main():
                 control.abort();
                 return {ok:binary.ok,type:binary.type,status:binary.status,
                         mime,assetSize:asset.size,assetName:asset.name};
-              } catch(error) { return {error:String(error)}; }
+              } catch(error) { return {stage,error:String(error)}; }
             }""")
             print("RELEASE_BINARY_BROWSER_CORS:", json.dumps(probe), flush=True)
             if probe.get("error") or not probe.get("ok") or "json" in probe.get("mime",""):
