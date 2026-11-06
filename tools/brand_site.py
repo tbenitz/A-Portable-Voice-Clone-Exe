@@ -55,6 +55,96 @@ replace('<script type="module" src="app.js?v=2.0.9"></script>',
 if "new PocketVoice();" not in app:
     raise SystemExit("Pinned Pocket Voice main constructor changed.")
 app = app.replace("new PocketVoice();", "window.__pocketApp = new PocketVoice();", 1)
+
+# Scan long references for a usable conditioning excerpt instead of blindly
+# taking the first ten seconds. Only that excerpt is resampled, avoiding a
+# giant OfflineAudioContext for a 5–30 minute reference.
+OLD_CONDITIONING = """      let pcmData;
+      if (audioBuffer.sampleRate !== SAMPLE_RATE) {
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * SAMPLE_RATE), SAMPLE_RATE);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start();
+        const resampled = await offlineCtx.startRendering();
+        pcmData = resampled.getChannelData(0);
+      } else {
+        pcmData = audioBuffer.getChannelData(0);
+      }
+
+      const maxSamples = SAMPLE_RATE * 10;
+      const clipped = pcmData.length > maxSamples ? pcmData.slice(0, maxSamples) : new Float32Array(pcmData);"""
+NEW_CONDITIONING = """      const rawAudio = audioBuffer.getChannelData(0);
+      const inputRate = audioBuffer.sampleRate;
+      const excerptFrames = Math.min(rawAudio.length, inputRate * 10);
+      const stepFrames = Math.max(1, Math.floor(inputRate * 4));
+      const sampleStride = Math.max(1, Math.floor(inputRate / 400));
+      let bestStart = 0, bestScore = -1;
+      for (let start = 0; start < rawAudio.length; start += stepFrames) {
+        const end = Math.min(rawAudio.length, start + excerptFrames);
+        let sum = 0, active = 0, clippedN = 0, count = 0;
+        for (let i = start; i < end; i += sampleStride) {
+          const v = rawAudio[i], a = Math.abs(v);
+          sum += v * v;
+          if (a > 0.008) active++;
+          if (a >= 0.985) clippedN++;
+          count++;
+        }
+        if (!count) continue;
+        const rms = Math.sqrt(sum / count);
+        const score = 0.48 * (active / count) +
+          0.42 * Math.min(1, rms / 0.13) +
+          0.10 * (1 - Math.min(1, clippedN * 100 / count));
+        if (score > bestScore) { bestScore = score; bestStart = start; }
+        if (end === rawAudio.length) break;
+      }
+      const excerpt = rawAudio.slice(bestStart, bestStart + excerptFrames);
+      let pcmData;
+      if (inputRate !== SAMPLE_RATE) {
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(excerpt.length * SAMPLE_RATE / inputRate), SAMPLE_RATE);
+        const segment = offlineCtx.createBuffer(1, excerpt.length, inputRate);
+        segment.copyToChannel(excerpt, 0);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = segment;
+        source.connect(offlineCtx.destination);
+        source.start();
+        const resampled = await offlineCtx.startRendering();
+        pcmData = resampled.getChannelData(0);
+      } else {
+        pcmData = excerpt;
+      }
+      const maxSamples = SAMPLE_RATE * 10;
+      const clipped = pcmData.length > maxSamples ? pcmData.slice(0, maxSamples) : new Float32Array(pcmData);
+      let energy = 0, peak = 0, clipCount = 0, usable = 0;
+      for (let k = 0; k < clipped.length; k += 20) {
+        const value = Math.abs(clipped[k]);
+        energy += value * value;
+        if (value > peak) peak = value;
+        if (value >= .985) clipCount++;
+        usable++;
+      }
+      const rmsDb = 20 * Math.log10(Math.max(1e-6, Math.sqrt(energy / Math.max(1, usable))));
+      const clippedFraction = clipCount / Math.max(1, usable);
+      const score = Math.round(100 * (
+        .7 * Math.max(0, 1 - Math.abs(rmsDb + 23) / 35) +
+        .3 * (1 - Math.min(1, clippedFraction * 100))
+      ));
+      this.referenceHealth = {
+        score, rmsDb: Math.round(rmsDb),
+        start: Math.round(bestStart / inputRate), seconds: clipped.length / SAMPLE_RATE,
+        originalDuration: audioBuffer.duration,
+        hint: rmsDb < -39 ? "Recording is quiet" :
+          clippedFraction > .01 ? "Recording may be clipped" :
+          "Signal-level estimate; avoid music and multiple speakers"
+      };"""
+if OLD_CONDITIONING not in app:
+    raise SystemExit("Pinned upstream voice processing changed; cannot apply long-reference scanner")
+app = app.replace(OLD_CONDITIONING, NEW_CONDITIONING, 1)
+if "if (this.recordingSeconds >= 10) this.stopRecording();" not in app:
+    raise SystemExit("Pinned upstream recording stop condition changed.")
+app = app.replace("if (this.recordingSeconds >= 10) this.stopRecording();",
+                  "if (this.recordingSeconds >= 1800) this.stopRecording();", 1)
+
 # Use only already downloaded PCM. Originals are untouched, so the working
 # VoiceEncoder / generation logic remains the same and can be regression-tested.
 page_file.write_text(page, encoding="utf-8")
