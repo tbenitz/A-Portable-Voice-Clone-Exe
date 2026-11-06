@@ -502,13 +502,17 @@ class Studio:
         self.emit("refresh", voice["id"])
 
     def export_voice(self):
-        from tkinter import filedialog
+        from tkinter import filedialog, messagebox
         voice = self.selected_library_voice()
         if voice:
             path = filedialog.asksaveasfilename(defaultextension=".voicepack",
                     initialfile=voice["name"] + ".voicepack", filetypes=[("Voice pack", "*.voicepack")])
             if path:
-                self.run_async("Exporting voice package", lambda: self.lib.export_voice(voice["id"], Path(path)))
+                include = messagebox.askyesno("Portable model weights",
+                    "Also include the selected language's cached Pocket model?\n\nThis can add hundreds of MB, but lets another PC import and generate without downloading models.\nChoose No for a smaller voice-only package.")
+                self.run_async("Exporting voice package", lambda: self.lib.export_voice(
+                    voice["id"], Path(path), include_models=include,
+                    language=self.lib.settings.get("language", "english_2026-04")))
 
     def edit_voice(self):
         from tkinter import simpledialog
@@ -914,7 +918,8 @@ class Studio:
                 function()
             except Exception as exc:
                 LOG.error("Task failure:\n%s", traceback.format_exc())
-                self.emit("error", f"{exc}\n\nDetails: {self.logfile}")
+                if not self.cancel.is_set():
+                    self.emit("error", f"{exc}\n\nDetails: {self.logfile}")
             finally:
                 self.emit("idle", None)
         self.worker = threading.Thread(target=execute, daemon=True)
