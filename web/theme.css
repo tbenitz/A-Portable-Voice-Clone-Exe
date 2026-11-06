@@ -161,3 +161,7 @@ body::after { content:""; display:block; position:fixed; inset:0; background-ima
 .studio-nav nav a:hover{color:#7de6f6}
 #hero{padding-top:90px}
 @media(max-width:700px){.studio-nav{padding:0 16px;height:58px}.studio-nav nav{gap:12px}.studio-nav nav a{font-size:11px}.studio-nav nav a:nth-child(2),.studio-nav nav a:last-child{display:none}#hero{padding-top:62px}}
+
+.personal-name-label{display:block;font-size:12px;font-weight:750;color:#bcdce9;margin:3px 0 7px}
+.personal-name-input{display:block;width:100%;min-height:44px;border:1px solid #44637d;border-radius:9px;background:#0b1f31;color:#f2f9ff;padding:11px 13px;font:500 14px var(--sans);margin-bottom:14px;box-sizing:border-box}
+.personal-name-input:focus{outline:2px solid rgba(101,216,239,.65);outline-offset:1px}
