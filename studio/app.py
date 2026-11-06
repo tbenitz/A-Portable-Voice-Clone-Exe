@@ -613,8 +613,9 @@ class Studio:
             nonlocal buffered_frames, live_stream
             if self.cancel.is_set():
                 return
-            chunks.append(chunk)
-            buffered_frames += len(chunk)
+            if live_stream is None:
+                chunks.append(chunk)
+                buffered_frames += len(chunk)
             if live_stream is None and buffered_frames >= rate * .7:
                 live_stream = sd.OutputStream(samplerate=rate, channels=1,
                           dtype="float32", latency="high", device=self.output_device_id())
