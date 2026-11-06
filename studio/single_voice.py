@@ -145,12 +145,19 @@ class CompactStudio:
         self.text.insert("1.0", "Hello! This is my personalized Pocket TTS voice. I can replay this result without regenerating it.")
 
         row = Frame(outer, bg=DARK)
-        row.pack(fill="x", pady=(12, 12))
-        self.btn(row, "▶  Generate", self.generate, True).pack(side="left", padx=(0, 7))
-        self.btn(row, "↻  Replay", self.replay).pack(side="left", padx=3)
-        self.btn(row, "↓  WAV / MP3", self.export_audio).pack(side="left", padx=3)
-        self.btn(row, "Clipboard → Speak", self.speak_clipboard).pack(side="left", padx=3)
-        self.btn(row, "■  Stop", self.stop).pack(side="right")
+        row.pack(fill="x", pady=(12, 4))
+        self.generate_button = self.btn(row, "▶  Generate", self.generate, True)
+        self.generate_button.pack(side="left", padx=(0, 7))
+        self.replay_button = self.btn(row, "↻  Replay", self.replay)
+        self.replay_button.configure(state="disabled", disabledforeground="#8ca1b2")
+        self.replay_button.pack(side="left", padx=3)
+        self.export_button = self.btn(row, "↓  WAV / MP3", self.export_audio)
+        self.export_button.configure(state="disabled", disabledforeground="#8ca1b2")
+        self.export_button.pack(side="left", padx=3)
+        secondary = Frame(outer, bg=DARK)
+        secondary.pack(fill="x", pady=(2, 12))
+        self.btn(secondary, "Clipboard → Speak", self.speak_clipboard).pack(side="left", padx=(0, 7))
+        self.btn(secondary, "■  Stop playback", self.stop).pack(side="left", padx=3)
 
         cols = Frame(outer, bg=DARK)
         cols.pack(fill="x", pady=(4, 6))
@@ -375,12 +382,15 @@ class CompactStudio:
                     self.status.set(str(value))
                 elif kind == "ready":
                     self.last_audio, self.last_rate, self.last_text = value
+                    self.replay_button.configure(state="normal")
+                    self.export_button.configure(state="normal")
                     self.status.set(f"Saved last generation in memory · {len(self.last_audio)/self.last_rate:.1f}s · Replay any time")
                 elif kind == "error":
                     self.status.set("Generation failed · see error")
                     messagebox.showerror("Pocket voice error", str(value))
                 elif kind == "finish":
                     self.task = None
+                    self.generate_button.configure(state="normal", bg=CYAN, fg=DARK)
                     next_text = self.clipboard_queue.pop()
                     if next_text:
                         self.root.after(25, lambda text=next_text: self._speak_text(text))
@@ -400,7 +410,9 @@ class CompactStudio:
             self.status.set("Generation still in progress. Press Stop before starting another.")
             return
         self.stop_event = threading.Event()
-
+        self.generate_button.configure(state="disabled", bg="#314456",
+                                       disabledforeground="#b9c9d8")
+        self.status.set("Working with the selected voice…")
         def runner():
             try:
                 job()
