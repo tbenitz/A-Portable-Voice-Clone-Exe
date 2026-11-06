@@ -1,28 +1,58 @@
-# Portable Voice Clone Studio
+# Pocket Voice Clone Studio
 
-A Windows desktop voice library, text-to-speech studio and microphone transcription-to-cloned-voice workflow powered by **Pocket TTS ONNX**. Based on the working Pocket engine from [supertonic3gpt-clone](https://github.com/tbenitz/supertonic3gpt-clone).
+**Create and test a real cloned voice in the browser. Replay the generated speech without rerunning AI, download WAV or MP3, and build a personalized single-voice EXE or install the full Windows suite.**
 
-This is a desktop project, not the browser demo or a fake voice simulator. The actual generator is KevinAHM's PocketTTSOnnx inference code, pinned to the revision used by the working project.
+- **Browser voice studio:** https://tbenitz.github.io/A-Portable-Voice-Clone-Exe/
+- **Windows installer:** https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest/download/VoiceCloneStudio-Setup.exe
+- **Releases and builds:** https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/releases
+- **GitHub Actions status:** https://github.com/tbenitz/A-Portable-Voice-Clone-Exe/actions
 
-**Status:** Source and Windows build CI. Download a Windows build from Actions → Build portable studio → Artifacts once it passes. End-to-end audio, microphone and hotkey tests must be checked on a real Windows PC.
+This extends the **working Pocket TTS engine** from [supertonic3gpt-clone/pocket](https://tbenitz.github.io/supertonic3gpt-clone/pocket/). No fake voice outputs, hidden cloud-cloning APIs or separate Python install for normal Windows users.
 
-## What it does
-- Voice library: import/record long references, analyze and clean audio, store original and chosen **short** conditioning segment, preview, favorite, tag, duplicate, export/import `.voicepack` ZIP. Choose to include cached language-model weights for fully offline transfer (larger package).
-- Offline-first after initial model and optional speech-recognition downloads; local data is stored beside the EXE in writable `VoiceData`, else under local user data. No cloud voice uploads.
-- Pocket ONNX TTS with speed/independent pitch postprocessing, temperature (expressiveness), inference steps, batch generation, WAV/MP3 output, history, saved profiles and a pronunciation-replacement dictionary.
-- Floating always-on-top mini controller, system tray when available, and configurable global recording hotkey.
-- Mic and audio-file speech-to-speech **via local ASR → Pocket TTS** (not zero-delay voice conversion); choose a virtual audio output device for OBS/Discord routing.
-- A/B text generation and experimental two-voice blend.
+## Browser Studio: voice audition and export
 
-## Known model and hardware limitations
-Pocket TTS works from a relatively short conditioning sample; selecting 30 minutes does **not** train or fine-tune the underlying model. Longer recordings are stored and scanned for an intelligible segment. Reference health is a signal-quality estimate, not an identity-match guarantee. High/Ultra use more flow steps and may be slower but are not automatically better on all voices. No guaranteed emotions/style tokens, no true simultaneous speech-to-speech; mic is transcribed when released (requires a downloaded faster-whisper model). Pitch/speed and MP3 export use bundled FFmpeg, so postprocessed output may take longer to begin playing. The bundled ONNX models are INT8; we do not label them FP32. Optional full offline voice packages need the selected language's model to have been downloaded on the exporting machine first.
+The published website is a full responsive voice studio based on the real ONNX/WASM Pocket TTS app.
 
-## Build
-GitHub Actions builds a portable **folder** containing `VoiceCloneStudio.exe` (not a misleading single-file EXE that secretly re-downloads runtime libraries). Download/extract the artifact ZIP and keep the executable beside its `_internal` folder. VoiceData lives beside the EXE if writable. Start the EXE; its first synthesis downloads the pinned public model bundle. Optional speech recognition downloads the open-source Whisper tiny model once. All generated audio and source references remain local.
+1. Upload or record a voice you own or have permission to clone. Longer files are scanned to select a usable **10-second conditioning excerpt**; the model does not train on the whole long recording.
+2. Choose your cloned voice, type a test, and press **Generate Audio** to use genuine Pocket TTS inference.
+3. Listen to **A — Reference recording** and **B — Generated clone**. Replay B as many times as you like without regeneration. Completed PCM is retained independently of the streaming player.
+4. Download the same output as WAV or browser-encoded MP3. The MP3 encoder is bundled and never sends the audio to a server.
+5. Confirm permission and choose **Build my single-voice EXE**. The browser verifies the Windows EXE template's SHA-256 and PE header and appends a locally generated voice profile.
 
-Voice packages can be small voice-only backups, or much larger self-contained packs with cached ONNX weights. The model is shared across voices so embedding it per voice is optional. Microphone speech-to-speech additionally needs the separate Whisper ASR model on each machine. Optional cloud backup is not implemented.
+Nothing uploads voice references, generated audio, or the custom executable profile to GitHub. First-time Pocket TTS model downloads require internet access.
 
-For local Python development: `python -m pip install -r requirements.txt`; then download the pinned ONNX inference module via `scripts/fetch_inference.py`; run `python -m studio.app`. To run pure logic tests: `python -m unittest discover -s tests -v`.
+Browser inference is pinned to Hemanth HM's Pocket Voice revision a4496c429f1dcd6ea8faef55a21dc4b7d45636a9, as in the working repo.
 
-## Privacy and attribution
-Only clone voices you own or are authorized to use. Never present synthesized speech deceptively as a real recording. Models and third-party libraries remain subject to their own licenses. Core voice inference: [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts) and [KevinAHM's ONNX conversion](https://huggingface.co/KevinAHM/pocket-tts-onnx). First-run model download may be required; after model caching the software does not need a network connection.
+## Two Windows editions
+
+### Personal Edition — a single portable executable
+
+A personalized Windows x64 EXE contains the native launcher, an embedded ZIP of the frozen Pocket inference GUI, and the specific voice's WAV. It opens its **own compact window**, not a web view: fixed cloned voice, text box, Real-time/Balanced/High/Ultra, speed/pitch/stability sliders, generation with streaming when possible, **Replay without regeneration**, WAV/MP3 exports, Stop, always-on-top and keyboard shortcuts.
+
+The EXE reuses an extracted runtime under the user's local app data and downloads Pocket ONNX model weights once before subsequent offline operation. **No Python installation or external project checkout is necessary.** You can copy the generated EXE to another Windows x64 machine.
+
+### Full Edition — installable studio or portable folder
+
+A Windows Inno Setup installer creates Start Menu/Desktop shortcuts and an uninstaller, and includes all Python runtime libraries. A separately downloadable portable-folder build is also available under GitHub Actions.
+
+It provides a multi-voice library, favorites/tags/notes, original and processed references, long-file health scan and cleaner, voice packs with optional cached ONNX weights, real Pocket synthesis, playback and replay, WAV/MP3, presets, stability/clarity/speed/pitch, microphone capture, Whisper transcription-to-speech, batch output, global hotkey, floating mini-panel, system tray, history and A/B, saved profiles and pronunciation replacements.
+
+The full desktop application can **create personal single-voice EXEs from any saved voice** using the bundled Windows template, without recompiling software.
+
+## Build and verification
+
+GitHub Actions builds both the full frozen desktop program and the separate compact frozen GUI, plus the .NET NativeAOT Windows launcher; packages the personal voice template; checks plain and profile-embedded launchers; compiles and silently installs an Inno Setup installer; executes the installed EXE's self-test; uploads artifacts and creates a GitHub Release; and deploys the polished Pocket TTS web app via GitHub Pages.
+
+Source development only: install requirements.txt and the pinned ONNX Python inference code with scripts/fetch_inference.py. Windows users do not run pip or install Python.
+
+**Limits:** Physical Windows microphone, tray, global hotkey, output-device selection, and perceptual voice quality must be tested on a real Windows PC. A CI test of program startup does not prove speaker or microphone hardware behavior. The microphone speech-to-speech workflow is local Whisper ASR **then** Pocket TTS synthesis, not simultaneous zero-delay voice conversion. Ultra steps can be slower without being guaranteed better. Real emotion tags and optional cloud backup are not implemented. More reference minutes do not necessarily improve Pocket TTS, which conditions on a short sample.
+
+## Open-source attribution and consent
+
+- Website/desktop integration: **tbenitz**.
+- Original browser program: [Hemanth HM Pocket Voice](https://github.com/hemanth/pocket-voice), MIT.
+- [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts), under its model and code terms.
+- [KevinAHM Pocket ONNX](https://huggingface.co/KevinAHM/pocket-tts-onnx) for native and browser conversion.
+- [lamejs 1.2.1](https://www.jsdelivr.com/package/npm/lamejs), LGPL-3.0, licensed separately in the website's vendor directory.
+
+Only clone voices you own or have permission to use; never present generated voice recordings as authentic testimony or use them for fraud.
