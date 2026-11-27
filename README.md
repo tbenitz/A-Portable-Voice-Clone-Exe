@@ -27,7 +27,7 @@ Browser inference is pinned to Hemanth HM's Pocket Voice revision a4496c429f1dcd
 
 ### Personal Edition — a single portable executable
 
-A personalized Windows x64 EXE is a clipboard-to-speech utility for AAC: copy the message to the clipboard and launch the EXE. It reads the clipboard once, speaks using the embedded personal voice, waits for playback to finish, and exits. No editor, Generate button, or clipboard watcher opens. Empty clipboard exits silently. The compact browser export downloads its runtime on first use; the bundled export includes the runtime. Offline use requires the Pocket model to be cached too. Re-export older EXEs after the updated Windows release is published. The full studio remains available separately for voice creation and editing.
+A personalized Windows x64 EXE is a clipboard-to-speech utility for AAC. Launch it to speak the current clipboard using the embedded personal voice. The launcher exits after handing the message to one hidden engine, which retains its model and voice embedding between requests. No editor, Generate button or clipboard watcher opens. Empty clipboard exits silently. The first use may need to download the runtime and model; subsequent warm requests reuse memory. The full studio remains separate.
 
 The EXE reuses an extracted runtime under the user's local app data and downloads Pocket ONNX model weights once before subsequent offline operation. **No Python installation or external project checkout is necessary.** You can copy the generated EXE to another Windows x64 machine.
 
@@ -57,6 +57,6 @@ Source development only: install requirements.txt and the pinned ONNX Python inf
 
 Only clone voices you own or have permission to use; never present generated voice recordings as authentic testimony or use them for fraud.
 
-### Clipboard-only v3 behavior
+### Warm clipboard speech (v4)
 
-The launcher snapshots Unicode clipboard text before loading the speech runtime. A per-Windows-session mutex prevents parallel clipboard voice processes; extra activations while busy are ignored rather than queued. Re-launch after playback to speak another message (including an intentional repeat). The message is passed in the temporary job profile, removed by the runner after reading, and the launcher deletes the job folder on exit. The engine uses the faster Real-time preset and fully generates audio before a high-latency blocking output stream plays it. Cold model initialization still takes time; the app does not remain running after speech. Re-export using a v3 starter after the matching release is available.
+The personalized EXE snapshots the clipboard on each activation, sends the text over a local authenticated named pipe, and exits. One hidden worker per Windows user/session retains its Pocket ONNX sessions and active voice embedding. New voices reuse the worker; identical active/pending requests are ignored and only the newest distinct pending phrase is kept while speaking. An intentional repeat after playback still works. Audio is fully synthesized and buffered before playback. No clipboard watcher or speech history is used, and clipboard text is not written to disk by the launcher. First use after login or shutdown still incurs model load time; warm requests skip that initialization. Run the personalized EXE with `--warmup` to preload the model and voice without speaking, or `--stop` to finish current speech and release the engine. Re-export from the website once the v4 Windows build is published.

@@ -96,7 +96,7 @@ jobs:
             size = (Get-Item $starter).Length
             architecture = 'windows-x64'
             thin = $true
-            mode = 'clipboard-once-v3'
+            mode = 'clipboard-warm-v4'
             revision = $env:GITHUB_SHA.Substring(0,10)
           } | ConvertTo-Json -Compress
           [System.IO.File]::WriteAllText(
@@ -190,8 +190,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "studio-v1.0.${{ github.run_number }}"
-          Copy-Item web/download/SingleVoice-Base.exe SingleVoice-Clipboard-v3.exe
-          gh release create $tag "installer-out/VoiceCloneStudio-Setup.exe" "web/download/SingleVoice-Base.exe" "SingleVoice-Clipboard-v3.exe" --repo "${{ github.repository }}" --title "Pocket Voice Studio 1.0.${{ github.run_number }}" --notes "Windows x64 full installer (no Python required), plus a personal single-voice EXE template. Use the browser to embed your own voice in the template." --latest
+          Copy-Item web/download/SingleVoice-Base.exe SingleVoice-Warm-v4.exe
+          gh release create $tag "installer-out/VoiceCloneStudio-Setup.exe" "web/download/SingleVoice-Base.exe" "SingleVoice-Warm-v4.exe" --repo "${{ github.repository }}" --title "Pocket Voice Studio 1.0.${{ github.run_number }}" --notes "Windows x64 full installer (no Python required), plus a personal single-voice EXE template. Use the browser to embed your own voice in the template." --latest
 
       - name: Publish small browser EXE starter to repository Pages branch
         if: github.ref == 'refs/heads/main'

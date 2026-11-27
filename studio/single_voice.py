@@ -597,6 +597,7 @@ def speak_clipboard_once(config_path):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file")
+    parser.add_argument("--worker-state", help="Run the hidden persistent speech engine")
     parser.add_argument("--studio", action="store_true", help="Explicitly open the optional editor")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
@@ -606,6 +607,9 @@ def main(argv=None):
         import pocket_tts_onnx
         assert imageio_ffmpeg.get_ffmpeg_exe()
         return 0
+    if args.worker_state:
+        from .warm_speech import run_worker
+        return run_worker(Path(args.worker_state))
     if not args.config_file:
         raise SystemExit("A personalized voice profile is required. Export an EXE from the website or desktop suite.")
     if args.studio:

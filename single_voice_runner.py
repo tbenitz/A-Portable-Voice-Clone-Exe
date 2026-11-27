@@ -15,7 +15,8 @@ if __name__ == "__main__":
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / "single-startup-error.txt"
             path.write_text(traceback.format_exc(), encoding="utf-8")
-            ctypes.windll.user32.MessageBoxW(0, "Pocket single-voice UI failed.\n\nError log: " + str(path),
-                                             "Pocket Voice - Startup", 0x10)
+            if "--worker-state" not in sys.argv:
+                ctypes.windll.user32.MessageBoxW(0, "Pocket single-voice startup failed.\n\nError log: " + str(path),
+                                                 "Pocket Voice - Startup", 0x10)
             sys.exit(1)
         raise

@@ -25,14 +25,14 @@
   <div class="product-grid">
     <article class="product-card product-card-featured">
       <div class="product-kicker">PERSONAL EDITION <span>Single voice</span></div>
-      <div class="product-visual" aria-hidden="true"><div class="mock-voice"><div class="mock-top">CLIPBOARD SPEECH <span>●</span></div><div class="mock-voice-name">Copy → Speak → Exit</div><div class="mock-input">AAC message copied to clipboard</div><div class="mock-transport"><span>Launch EXE</span><span>Speak</span><span>Exit</span></div></div></div>
+      <div class="product-visual" aria-hidden="true"><div class="mock-voice"><div class="mock-top">CLIPBOARD SPEECH <span>●</span></div><div class="mock-voice-name">Copy → Speak → Ready</div><div class="mock-input">AAC message copied to clipboard</div><div class="mock-transport"><span>Launch EXE</span><span>Speak</span><span>Ready again</span></div></div></div>
       <h3>Your voice. One-click clipboard speech.</h3>
-      <p>Designed for AAC and ALS users: copy your message to the clipboard and launch the personalized EXE. It automatically speaks the message in your embedded voice, waits for playback to finish, and closes. No editor, menus, or additional clicks. Only one speech request can run at a time; extra launches during speech are ignored.</p>
-      <div class="product-features"><span>One voice included</span><span>Reads clipboard once</span><span>No speech window</span><span>Closes after playback</span></div>
+      <p>Designed for AAC and ALS users: launch the EXE to speak the current clipboard in your embedded voice. The hidden speech engine stays loaded after playback, so the next launch reuses the model and voice. No editor, menus or additional clicks. Only one message plays at a time; the newest pending message replaces older pending messages.</p>
+      <div class="product-features"><span>One voice included</span><span>Reads clipboard once</span><span>No speech window</span><span>Keeps engine loaded</span></div>
       <label class="personal-name-label" for="personal-name">Name your Windows voice</label><input id="personal-name" class="personal-name-input" type="text" value="My Cloned Voice" maxlength="72" autocomplete="off" aria-label="Name your cloned voice">
       <label class="consent-check"><input id="single-consent" type="checkbox"> I own this voice or have permission to clone it.</label>
       <button type="button" class="studio-btn studio-btn-primary" id="download-personal" disabled>Build my clipboard-to-speech EXE</button>
-      <p class="product-status">First use requires internet to download the verified Pocket runtime and speech model. Subsequent use is offline once both are cached. No Python installation required.</p>
+      <p class="product-status">First use requires internet to download the verified Pocket runtime and speech model. Subsequent use is offline once both are cached. No Python installation required. Use --warmup to preload silently, or --stop to shut down the background engine.</p>
       <p id="personal-status" class="product-status" role="status" aria-live="polite">Upload a voice, generate a cloned example, and confirm permission to unlock.</p>
     </article>
     <article class="product-card">

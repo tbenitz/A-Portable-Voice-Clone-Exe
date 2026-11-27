@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.IO.Pipes;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -128,7 +129,7 @@ static class Program
         foreach (var asset in document.RootElement.GetProperty("assets").EnumerateArray())
         {
             if (!asset.TryGetProperty("name", out var n) ||
-                n.GetString() != "SingleVoice-Clipboard-v3.exe") continue;
+                n.GetString() != "SingleVoice-Warm-v4.exe") continue;
             assetUrl = asset.GetProperty("browser_download_url").GetString();
             assetDigest = asset.GetProperty("digest").GetString();
             assetSize = asset.GetProperty("size").GetInt64();
@@ -244,106 +245,134 @@ static class Program
         return "";
     }
 
+    // A single hidden runtime per Windows user/session. The randomly named pipe
+    // and token live in the user's local app-data folder, never on the network.
+    static bool SendRequest(string[] state, string command, byte[] profile, string phrase, int timeout)
+    {
+        if (state.Length < 3 || !state[0].StartsWith("PocketWarm-") || state[1].Length != 64)
+            return false;
+        using var pipe = new NamedPipeClientStream(".", state[0], PipeDirection.InOut, PipeOptions.Asynchronous);
+        try { pipe.Connect(timeout); }
+        catch (TimeoutException) { return false; }
+        byte[] prefix = Utf8NoBom.GetBytes(state[1] + "\n" + command + "\n");
+        byte[] words = Utf8NoBom.GetBytes(phrase);
+        if (words.Length > 262144) throw new InvalidDataException("Clipboard message exceeds 256 KB.");
+        byte[] request = new byte[prefix.Length + 4 + profile.Length + words.Length];
+        prefix.CopyTo(request, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(request.AsSpan(prefix.Length, 4), profile.Length);
+        profile.CopyTo(request, prefix.Length + 4);
+        words.CopyTo(request, prefix.Length + 4 + profile.Length);
+        // Do not retry after writing: an acknowledged or ambiguous delivery must
+        // never generate duplicate speech.
+        using var deadline = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+        pipe.WriteAsync(request.AsMemory(), deadline.Token).AsTask().GetAwaiter().GetResult();
+        byte[] reply = new byte[1];
+        int count = pipe.ReadAsync(reply.AsMemory(), deadline.Token).AsTask().GetAwaiter().GetResult();
+        if (count != 1 || (reply[0] != (byte)'A' && reply[0] != (byte)'D'))
+            throw new IOException("The warm speech engine did not accept the request.");
+        return true;
+    }
+
+    static bool WorkerAlive(string[] state)
+    {
+        if (state.Length < 3 || !int.TryParse(state[2], out int pid) || pid <= 0) return false;
+        try
+        {
+            using var worker = Process.GetProcessById(pid);
+            return !worker.HasExited && worker.ProcessName.Equals("voice_ui", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
     [STAThread]
     static int Main(string[] args)
     {
-        if (args.Length == 1 && args[0] == "--self-test")
-            return VerifyOnly();
-        using var speechLock = new System.Threading.Mutex(false, @"Local\PortableVoiceClone.ClipboardSpeech.v3");
+        if (args.Length == 1 && args[0] == "--self-test") return VerifyOnly();
+        string command = args.Length == 1 && args[0] == "--stop" ? "stop" :
+                         args.Length == 1 && args[0] == "--warmup" ? "warmup" : "speak";
+        string phrase = command == "speak" ? SnapshotClipboard() : "";
+        if (command == "speak" && string.IsNullOrWhiteSpace(phrase)) return 0;
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                "PortableVoiceClone", "WarmRuntime-v4");
+        string statePath = Path.Combine(root, "worker-" + Process.GetCurrentProcess().SessionId + ".state");
+        using var startupLock = new System.Threading.Mutex(false, @"Local\PortableVoiceClone.WarmSpeech.v4");
         bool ownsLock = false;
         try
         {
-            try { ownsLock = speechLock.WaitOne(0); }
+            try { ownsLock = startupLock.WaitOne(2000); }
             catch (System.Threading.AbandonedMutexException) { ownsLock = true; }
-            if (!ownsLock) return 0; // Ignore overlapping requests; never queue stale speech.
-            var source = Environment.ProcessPath ?? throw new InvalidDataException("Executable path missing.");
-            using var fs = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!ownsLock) return 0;
+            byte[] profileBytes = Array.Empty<byte>();
+            using var fs = File.Open(Environment.ProcessPath!, FileMode.Open, FileAccess.Read, FileShare.Read);
             long end = fs.Length;
-            if (!ReadTrailer(fs, ref end, ProfileMarker, out long profileAt, out long profileLen))
+            bool bundled = false;
+            long runtimeAt = 0, runtimeLen = 0;
+            if (command != "stop")
             {
-                MessageBoxW(IntPtr.Zero,
-                    "This is the unpersonalized EXE template.\n\nCreate a voice with Pocket TTS on the website, listen to the preview, then export your personalized voice application.",
-                    "Pocket Voice - Personalize first", 0x40);
-                return 2;
+                if (!ReadTrailer(fs, ref end, ProfileMarker, out long profileAt, out long profileLen))
+                    throw new InvalidDataException("Personalize this EXE with your voice on the website first.");
+                if (profileLen < 60 || profileLen > 8_000_000)
+                    throw new InvalidDataException("Voice profile is invalid or too large.");
+                profileBytes = new byte[checked((int)profileLen)];
+                fs.Position = profileAt;
+                fs.ReadExactly(profileBytes);
+                bundled = ReadTrailer(fs, ref end, BundleMarker, out runtimeAt, out runtimeLen);
+                if (bundled && runtimeLen < 1_000_000)
+                    throw new InvalidDataException("Pocket voice runtime bundle is incomplete.");
             }
-            if (profileLen < 60 || profileLen > 8_000_000)
-                throw new InvalidDataException("Voice profile is invalid or too large.");
-            byte[] profileBytes = new byte[checked((int)profileLen)];
-            fs.Position = profileAt;
-            fs.ReadExactly(profileBytes);
-            bool bundled = ReadTrailer(fs, ref end, BundleMarker, out long runtimeAt, out long runtimeLen);
-            if (bundled && runtimeLen < 1_000_000)
-                throw new InvalidDataException("Pocket voice runtime bundle is incomplete.");
-
-            string phrase = SnapshotClipboard();
-            if (string.IsNullOrWhiteSpace(phrase)) return 0;
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                    "PortableVoiceClone", "ClipboardRuntime-v3");
             Directory.CreateDirectory(root);
-            string engine = bundled ? ExtractEngine(fs, runtimeAt, runtimeLen, root)
-                                    : FindOrDownloadRuntime(root);
-            using var document = JsonDocument.Parse(profileBytes);
-            var data = document.RootElement;
-            if (!data.TryGetProperty("engine", out var mode) || mode.GetString() != "pocket")
-                throw new InvalidDataException("Not a Pocket TTS voice package.");
-            if (!data.TryGetProperty("voice_wav_b64", out var audioElement))
-                throw new InvalidDataException("No voice was embedded.");
-            byte[] wav = Convert.FromBase64String(audioElement.GetString() ?? "");
-            if (wav.Length < 44 || wav.Length > 5_000_000 ||
-                Encoding.ASCII.GetString(wav, 0, 4) != "RIFF" ||
-                Encoding.ASCII.GetString(wav, 8, 4) != "WAVE")
-                throw new InvalidDataException("Embedded voice reference is not a valid WAV.");
-            string name = data.TryGetProperty("voice_name", out var n) ? (n.GetString() ?? "My Voice") : "My Voice";
-            if (name.Length > 72) name = name[..72];
-            string lang = data.TryGetProperty("lang", out var l) ? (l.GetString() ?? "english_2026-04") : "english_2026-04";
-            if (lang is not ("english_2026-04" or "english" or "german" or "spanish" or "italian" or "portuguese"))
-                throw new InvalidDataException("Unsupported voice language.");
+            if (File.Exists(statePath))
+            {
+                string[] state = File.ReadAllLines(statePath);
+                if (SendRequest(state, command, profileBytes, phrase, 250)) return 0;
+                if (WorkerAlive(state))
+                    throw new IOException("The existing speech engine is not responding. No second engine was started.");
+                File.Delete(statePath);
+            }
+            if (command == "stop") return 0;
 
-            string job = Path.Combine(root, "voice-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(job);
+            string engine = bundled ? ExtractEngine(fs, runtimeAt, runtimeLen, root) : FindOrDownloadRuntime(root);
+            string pipeName = "PocketWarm-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+            string token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            // No clipboard message or voice recording is written to the state file.
+            File.WriteAllLines(statePath, new[] {pipeName, token, "0"}, Utf8NoBom);
+            Process? process = null;
             try
             {
-                string voicePath = Path.Combine(job, "reference.wav");
-                string configPath = Path.Combine(job, "voice.json");
-                File.WriteAllBytes(voicePath, wav);
-                File.WriteAllText(configPath, JsonSerializer.Serialize(
-                    new VoiceConfig { VoicePath = voicePath, VoiceName = name, Language = lang, ClipboardText = phrase },
-                    VoiceConfigJsonContext.Default.VoiceConfig), Utf8NoBom);
-                using Process process = Process.Start(new ProcessStartInfo
+                process = Process.Start(new ProcessStartInfo
                 {
                     FileName = engine,
                     WorkingDirectory = Path.GetDirectoryName(engine),
-                    ArgumentList = { "--config-file", configPath },
+                    ArgumentList = { "--worker-state", statePath },
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                }) ?? throw new InvalidDataException("Cannot start clipboard speech runtime.");
-                process.WaitForExit();
-                if (process.ExitCode != 0)
-                    throw new InvalidDataException("Clipboard speech returned " + process.ExitCode +
-                                                   ". Check %LOCALAPPDATA%\\PortableVoiceClone logs.");
+                }) ?? throw new InvalidDataException("Cannot start the warm speech engine.");
+                string[] state = {pipeName, token, process.Id.ToString()};
+                File.WriteAllLines(statePath + ".tmp", state, Utf8NoBom);
+                File.Move(statePath + ".tmp", statePath, true);
+                var timer = Stopwatch.StartNew();
+                while (timer.Elapsed < TimeSpan.FromSeconds(45))
+                {
+                    if (process.HasExited) throw new IOException("The speech engine exited during startup.");
+                    if (SendRequest(state, command, profileBytes, phrase, 250)) return 0;
+                }
+                throw new IOException("The speech engine did not become ready.");
             }
-            finally
+            catch
             {
-                try { Directory.Delete(job, recursive: true); } catch (IOException) { }
+                // If a request was sent but acknowledgment failed, do not replay it.
+                if (process is null || process.HasExited) File.Delete(statePath);
+                throw;
             }
-            return 0;
+            finally { process?.Dispose(); }
         }
         catch (Exception ex)
         {
+            // Failure only; normal launches never open a window or take AAC focus.
             MessageBoxW(IntPtr.Zero, ex.Message, "Pocket Voice - Error", 0x10);
             return 1;
         }
-        finally { if (ownsLock) speechLock.ReleaseMutex(); }
+        finally { if (ownsLock) startupLock.ReleaseMutex(); }
     }
 }
-
-internal sealed class VoiceConfig
-{
-    [JsonPropertyName("voice_name")] public string VoiceName { get; set; } = "My Voice";
-    [JsonPropertyName("lang")] public string Language { get; set; } = "english_2026-04";
-    [JsonPropertyName("clipboard_text")] public string ClipboardText { get; set; } = "";
-    [JsonPropertyName("voice_path")] public string VoicePath { get; set; } = "";
-}
-
-[JsonSerializable(typeof(VoiceConfig))]
-internal partial class VoiceConfigJsonContext : JsonSerializerContext {}
