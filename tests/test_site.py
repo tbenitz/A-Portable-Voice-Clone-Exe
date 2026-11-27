@@ -82,7 +82,7 @@ class WebBuildTests(unittest.TestCase):
         page = index.read_text(encoding="utf-8")
         self.assertIn("studio-addon.js", page)
         self.assertIn("vendor/lame.min.js", page)
-        self.assertIn('href="./theme.css"', page)
+        self.assertRegex(page, r'href="\./theme\.css(?:\?[^"\s]+)?"')
         self.assertIn("Pocket Voice Studio", page)
         self.assertIn("window.__pocketApp = new PocketVoice();", source.read_text(encoding="utf-8"))
 
