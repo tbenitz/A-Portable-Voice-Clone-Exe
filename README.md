@@ -56,3 +56,7 @@ Source development only: install requirements.txt and the pinned ONNX Python inf
 - [lamejs 1.2.1](https://www.jsdelivr.com/package/npm/lamejs), LGPL-3.0, licensed separately in the website's vendor directory.
 
 Only clone voices you own or have permission to use; never present generated voice recordings as authentic testimony or use them for fraud.
+
+### Clipboard-only v3 behavior
+
+The launcher snapshots Unicode clipboard text before loading the speech runtime. A per-Windows-session mutex prevents parallel clipboard voice processes; extra activations while busy are ignored rather than queued. Re-launch after playback to speak another message (including an intentional repeat). The message is passed in the temporary job profile, removed by the runner after reading, and the launcher deletes the job folder on exit. The engine uses the faster Real-time preset and fully generates audio before a high-latency blocking output stream plays it. Cold model initialization still takes time; the app does not remain running after speech. Re-export using a v3 starter after the matching release is available.

@@ -128,7 +128,7 @@ static class Program
         foreach (var asset in document.RootElement.GetProperty("assets").EnumerateArray())
         {
             if (!asset.TryGetProperty("name", out var n) ||
-                n.GetString() != "SingleVoice-Base.exe") continue;
+                n.GetString() != "SingleVoice-Clipboard-v3.exe") continue;
             assetUrl = asset.GetProperty("browser_download_url").GetString();
             assetDigest = asset.GetProperty("digest").GetString();
             assetSize = asset.GetProperty("size").GetInt64();
@@ -206,12 +206,56 @@ static class Program
         catch { return 45; }
     }
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")]
+    private static extern bool CloseClipboard();
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetClipboardData(uint format);
+    [DllImport("user32.dll")]
+    private static extern bool IsClipboardFormatAvailable(uint format);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GlobalLock(IntPtr handle);
+    [DllImport("kernel32.dll")]
+    private static extern bool GlobalUnlock(IntPtr handle);
+
+    static string SnapshotClipboard()
+    {
+        const uint CF_UNICODETEXT = 13;
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            if (!OpenClipboard(IntPtr.Zero))
+            {
+                System.Threading.Thread.Sleep(25);
+                continue;
+            }
+            try
+            {
+                if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return "";
+                IntPtr handle = GetClipboardData(CF_UNICODETEXT);
+                if (handle == IntPtr.Zero) return "";
+                IntPtr ptr = GlobalLock(handle);
+                if (ptr == IntPtr.Zero) return "";
+                try { return Marshal.PtrToStringUni(ptr) ?? ""; }
+                finally { GlobalUnlock(handle); }
+            }
+            finally { CloseClipboard(); }
+        }
+        return "";
+    }
+
+    [STAThread]
     static int Main(string[] args)
     {
         if (args.Length == 1 && args[0] == "--self-test")
             return VerifyOnly();
+        using var speechLock = new System.Threading.Mutex(false, @"Local\PortableVoiceClone.ClipboardSpeech.v3");
+        bool ownsLock = false;
         try
         {
+            try { ownsLock = speechLock.WaitOne(0); }
+            catch (System.Threading.AbandonedMutexException) { ownsLock = true; }
+            if (!ownsLock) return 0; // Ignore overlapping requests; never queue stale speech.
             var source = Environment.ProcessPath ?? throw new InvalidDataException("Executable path missing.");
             using var fs = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
             long end = fs.Length;
@@ -231,8 +275,10 @@ static class Program
             if (bundled && runtimeLen < 1_000_000)
                 throw new InvalidDataException("Pocket voice runtime bundle is incomplete.");
 
+            string phrase = SnapshotClipboard();
+            if (string.IsNullOrWhiteSpace(phrase)) return 0;
             var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                    "PortableVoiceClone", "ClipboardRuntime-v2");
+                                    "PortableVoiceClone", "ClipboardRuntime-v3");
             Directory.CreateDirectory(root);
             string engine = bundled ? ExtractEngine(fs, runtimeAt, runtimeLen, root)
                                     : FindOrDownloadRuntime(root);
@@ -261,7 +307,7 @@ static class Program
                 string configPath = Path.Combine(job, "voice.json");
                 File.WriteAllBytes(voicePath, wav);
                 File.WriteAllText(configPath, JsonSerializer.Serialize(
-                    new VoiceConfig { VoicePath = voicePath, VoiceName = name, Language = lang },
+                    new VoiceConfig { VoicePath = voicePath, VoiceName = name, Language = lang, ClipboardText = phrase },
                     VoiceConfigJsonContext.Default.VoiceConfig), Utf8NoBom);
                 using Process process = Process.Start(new ProcessStartInfo
                 {
@@ -287,6 +333,7 @@ static class Program
             MessageBoxW(IntPtr.Zero, ex.Message, "Pocket Voice - Error", 0x10);
             return 1;
         }
+        finally { if (ownsLock) speechLock.ReleaseMutex(); }
     }
 }
 
@@ -294,6 +341,7 @@ internal sealed class VoiceConfig
 {
     [JsonPropertyName("voice_name")] public string VoiceName { get; set; } = "My Voice";
     [JsonPropertyName("lang")] public string Language { get; set; } = "english_2026-04";
+    [JsonPropertyName("clipboard_text")] public string ClipboardText { get; set; } = "";
     [JsonPropertyName("voice_path")] public string VoicePath { get; set; } = "";
 }
 

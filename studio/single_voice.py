@@ -556,38 +556,41 @@ class CompactStudio:
         self.root.mainloop()
 
 
+def play_buffered_audio(audio, rate):
+    """Feed a fully synthesized waveform to a high-latency blocking stream."""
+    samples = np.ascontiguousarray(audio, dtype=np.float32).reshape(-1, 1)
+    if not samples.size:
+        return
+    # No inference, callback or disk I/O runs while feeding the audio device.
+    with sd.OutputStream(samplerate=int(rate), channels=1, dtype="float32",
+                         latency="high", blocksize=0) as stream:
+        # A single blocking write lets PortAudio buffer and drain the full clip.
+        stream.write(samples)
+        stream.stop()
+
+
 def speak_clipboard_once(config_path):
-    """Read clipboard once without showing a window, play fully, then exit."""
-    root = Tk()
-    root.withdraw()
-    try:
-        phrase = ""
-        import time
-        for attempt in range(8):
-            try:
-                phrase = root.clipboard_get()
-                break
-            except TclError:
-                if attempt < 7:
-                    time.sleep(0.05)
-    finally:
-        root.destroy()
+    """Speak only the native launcher's clipboard snapshot, never reread it."""
+    config_path = Path(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    phrase = payload.pop("clipboard_text", "")
+    # Remove copied message from the transient profile as soon as it is read.
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
     if not isinstance(phrase, str) or not phrase.strip():
         return 0
-    profile = read_profile(Path(config_path))
+    profile = read_profile(config_path)
     base = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "PortableVoiceClone" / "VoiceData"
     lib = Library(base)
     engine = PocketEngine(lib)
     voice = {"id": "personalized", "name": profile["name"],
              "reference": str(profile["voice_path"])}
-    config = {"preset": "Balanced", "speed": 1.0, "pitch": 0.0,
+    config = {"preset": "Real-time", "speed": 1.0, "pitch": 0.0,
               "stability": 50, "clarity": 0, "language": profile["lang"],
               "safe_mode": True}
-    stop = threading.Event()
+    # Generate the entire utterance before opening the sound device.
     audio, rate = engine.synthesize(phrase, voice, config,
-                                    status=lambda _: None, stop=stop)
-    if len(audio):
-        sd.play(np.asarray(audio, dtype=np.float32), int(rate), blocking=True)
+                                    status=lambda _: None, stop=threading.Event())
+    play_buffered_audio(audio, rate)
     return 0
 
 

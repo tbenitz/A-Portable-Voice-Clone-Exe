@@ -207,7 +207,7 @@
   // metadata endpoints are unavailable; a mismatching binary is still rejected.
   function validateStarterInfo(info) {
     return !!info && info.architecture === "windows-x64" &&
-      info.thin === true && info.mode === 'clipboard-once-v2' && Number.isSafeInteger(info.size) &&
+      info.thin === true && info.mode === 'clipboard-once-v3' && Number.isSafeInteger(info.size) &&
       info.size > 200000 && info.size < 40000000 &&
       /^[a-f0-9]{64}$/i.test(info.sha256);
   }
