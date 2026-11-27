@@ -205,14 +205,9 @@
   ];
   // A verified copy from the published Windows CI build. Only used if the
   // metadata endpoints are unavailable; a mismatching binary is still rejected.
-  const VERIFIED_STARTER = {
-    size: 6102016, thin: true, revision: "259d71d38b",
-    architecture: "windows-x64",
-    sha256: "4341e0068e5beb30460bccaf1b69927921ed7ff6dd2905fa0d1788dd518073eb"
-  };
   function validateStarterInfo(info) {
     return !!info && info.architecture === "windows-x64" &&
-      info.thin === true && Number.isSafeInteger(info.size) &&
+      info.thin === true && info.mode === 'clipboard-once-v2' && Number.isSafeInteger(info.size) &&
       info.size > 200000 && info.size < 40000000 &&
       /^[a-f0-9]{64}$/i.test(info.sha256);
   }
@@ -229,9 +224,9 @@
         } catch (error) {
           errors.push("metadata " + source.meta + ": " + error.message);
           // Known build fallback is safe only if SHA-256 of the binary matches.
-          metadata = VERIFIED_STARTER;
+          throw new Error('Clipboard-only build manifest unavailable');
         }
-        if (!validateStarterInfo(metadata)) throw new Error("Invalid verified Windows starter manifest");
+        if (!validateStarterInfo(metadata)) throw new Error("Clipboard-only Windows build is not published yet; refusing the old GUI version");
         const result = await fetch(source.exe, {cache: "no-store"});
         if (!result.ok) throw new Error("HTTP " + result.status);
         const binary = await result.arrayBuffer();
