@@ -96,6 +96,7 @@ jobs:
             size = (Get-Item $starter).Length
             architecture = 'windows-x64'
             thin = $true
+            mode = 'clipboard-once-v2'
             revision = $env:GITHUB_SHA.Substring(0,10)
           } | ConvertTo-Json -Compress
           [System.IO.File]::WriteAllText(
