@@ -165,17 +165,6 @@ jobs:
           $uninstall = Join-Path $destination 'unins000.exe'
           if (-not (Test-Path $uninstall)) { throw 'Windows uninstaller missing' }
           Write-Host "PASS: actual installer, runtime and uninstaller checked."
-      - name: Publish small browser EXE starter to repository Pages branch
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/download/SingleVoice-Starter.exe web/download/starter-build.json
-          git commit -m "Publish verified thin personal-voice Windows launcher [skip ci]"
-          if ($LASTEXITCODE -ne 0) { throw 'Starter files could not be committed to the Pages branch' }
-          git push origin HEAD:main
-          if ($LASTEXITCODE -ne 0) { throw 'Starter launch files could not be published to main' }
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceCloneStudio-Windows-Setup
@@ -203,6 +192,18 @@ jobs:
           $tag = "studio-v1.0.${{ github.run_number }}"
           Copy-Item web/download/SingleVoice-Base.exe SingleVoice-Clipboard-v3.exe
           gh release create $tag "installer-out/VoiceCloneStudio-Setup.exe" "web/download/SingleVoice-Base.exe" "SingleVoice-Clipboard-v3.exe" --repo "${{ github.repository }}" --title "Pocket Voice Studio 1.0.${{ github.run_number }}" --notes "Windows x64 full installer (no Python required), plus a personal single-voice EXE template. Use the browser to embed your own voice in the template." --latest
+
+      - name: Publish small browser EXE starter to repository Pages branch
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/download/SingleVoice-Starter.exe web/download/starter-build.json
+          git commit -m "Publish verified thin personal-voice Windows launcher [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'Starter files could not be committed to the Pages branch' }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'Starter launch files could not be published to main' }
 
   website:
     runs-on: ubuntu-latest

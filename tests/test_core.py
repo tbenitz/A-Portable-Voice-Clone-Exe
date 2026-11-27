@@ -231,5 +231,47 @@ class CoreTests(unittest.TestCase):
         self.assertIn("tts.stream", text)
 
 
+class ClipboardOneShotTests(unittest.TestCase):
+    def test_one_shot_uses_snapshot_and_waits_for_buffered_playback(self):
+        from studio import single_voice as sv
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "voice.json"
+            reference = voice_sample(root / "reference.wav")
+            config.write_text(json.dumps({"voice_name": "Test", "voice_path": str(reference),
+                                         "clipboard_text": "Newest message"}), encoding="utf-8")
+            waveform = np.ones(480, dtype=np.float32)
+            engine = MagicMock()
+            stream = MagicMock()
+            stream.__enter__.return_value = stream
+            events = []
+            def synthesize(*args, **kwargs):
+                self.assertEqual(args[0], "Newest message")
+                self.assertNotIn("clipboard_text", json.loads(config.read_text(encoding="utf-8")))
+                events.append("generated")
+                return waveform, 24000
+            engine.synthesize.side_effect = synthesize
+            stream.write.side_effect = lambda samples: events.append("played")
+            stream.stop.side_effect = lambda: events.append("drained")
+            with patch.object(sv, "Library"), patch.object(sv, "PocketEngine", return_value=engine), \
+                    patch.object(sv, "Tk", side_effect=AssertionError("must not open Tk")), \
+                    patch.object(sv.sd, "OutputStream", return_value=stream) as output:
+                self.assertEqual(sv.speak_clipboard_once(config), 0)
+            self.assertEqual(events, ["generated", "played", "drained"])
+            self.assertEqual(output.call_args.kwargs["latency"], "high")
+            np.testing.assert_array_equal(stream.write.call_args.args[0], waveform.reshape(-1, 1))
+
+    def test_empty_snapshot_does_not_load_engine_or_open_ui(self):
+        from studio import single_voice as sv
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "voice.json"
+            config.write_text(json.dumps({"clipboard_text": "  "}), encoding="utf-8")
+            with patch.object(sv, "PocketEngine") as engine, patch.object(sv, "Tk") as tk:
+                self.assertEqual(sv.speak_clipboard_once(config), 0)
+                engine.assert_not_called()
+                tk.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
