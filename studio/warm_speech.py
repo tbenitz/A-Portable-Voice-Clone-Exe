@@ -163,6 +163,8 @@ def run_worker(state_path):
                 (base / "warm-speech-error.txt").write_text(type(exc).__name__, encoding="utf-8")
             finally:
                 mailbox.done()
+        # Ensure the stop acknowledgment reaches the launcher before exit.
+        thread.join(timeout=5)
         return 0
     finally:
         if listener is not None:

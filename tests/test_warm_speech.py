@@ -1,5 +1,9 @@
 import base64
 import json
+import os
+import subprocess
+import threading
+import uuid
 import struct
 import tempfile
 import unittest
@@ -16,6 +20,35 @@ class WarmSpeechTests(unittest.TestCase):
         self.assertEqual(decode_request(frame, token), ("speak", profile, "Hello 🌎"))
         with self.assertRaises(ValueError):
             decode_request(frame, "B" * 64)
+
+    @unittest.skipUnless(os.name == "nt", "Windows named-pipe interoperability")
+    def test_dotnet_client_python_message_pipe(self):
+        from multiprocessing.connection import Listener
+        name = "PocketWarm-test-" + uuid.uuid4().hex
+        token = "A" * 64
+        profile = b'{"engine":"pocket"}'
+        frame = token.encode() + b"\nspeak\n" + struct.pack("<I", len(profile)) + profile + "New message".encode()
+        received = []
+        with Listener("\\\\.\\pipe\\" + name, family="AF_PIPE") as listener:
+            def server():
+                with listener.accept() as conn:
+                    received.append(decode_request(conn.recv_bytes(), token))
+                    conn.send_bytes(b"A")
+            thread = threading.Thread(target=server, daemon=True)
+            thread.start()
+            # Use the same Windows .NET named-pipe client framing as the native launcher.
+            command = (
+                "$p=[System.IO.Pipes.NamedPipeClientStream]::new('.', '" + name +
+                "', [System.IO.Pipes.PipeDirection]::InOut); "
+                "$p.Connect(5000); $b=[Convert]::FromBase64String('" +
+                base64.b64encode(frame).decode() +
+                "'); $p.Write($b,0,$b.Length); "
+                "$r=$p.ReadByte(); $p.Dispose(); if($r -ne 65){exit 1}"
+            )
+            subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
+                            "-Command", command], check=True, timeout=15)
+            thread.join(timeout=5)
+        self.assertEqual(received, [("speak", profile, "New message")])
 
     def test_pending_is_latest_not_a_backlog(self):
         mailbox = LatestRequest()
