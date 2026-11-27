@@ -114,11 +114,6 @@ static class Program
             if (File.Exists(found)) return found;
         }
 
-        MessageBoxW(IntPtr.Zero,
-            "First launch: Pocket Voice will download its Windows speech runtime (about 205 MB) from GitHub Releases. " +
-            "A separate Python install is NOT required.\n\nAn internet connection is needed this first time. " +
-            "The runtime is cached for future offline use.",
-            "Pocket Voice - First Launch", 0x40);
         const string api = "https://api.github.com/repos/tbenitz/A-Portable-Voice-Clone-Exe/releases/latest";
         using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true });
         http.Timeout = TimeSpan.FromMinutes(20);
@@ -237,7 +232,7 @@ static class Program
                 throw new InvalidDataException("Pocket voice runtime bundle is incomplete.");
 
             var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                    "PortableVoiceClone", "SingleRuntime");
+                                    "PortableVoiceClone", "ClipboardRuntime-v2");
             Directory.CreateDirectory(root);
             string engine = bundled ? ExtractEngine(fs, runtimeAt, runtimeLen, root)
                                     : FindOrDownloadRuntime(root);
@@ -275,10 +270,10 @@ static class Program
                     ArgumentList = { "--config-file", configPath },
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                }) ?? throw new InvalidDataException("Cannot open the voice studio runtime.");
+                }) ?? throw new InvalidDataException("Cannot start clipboard speech runtime.");
                 process.WaitForExit();
                 if (process.ExitCode != 0)
-                    throw new InvalidDataException("Voice UI returned " + process.ExitCode +
+                    throw new InvalidDataException("Clipboard speech returned " + process.ExitCode +
                                                    ". Check %LOCALAPPDATA%\\PortableVoiceClone logs.");
             }
             finally
