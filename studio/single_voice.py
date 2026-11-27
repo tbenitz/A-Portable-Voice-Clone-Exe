@@ -556,9 +556,45 @@ class CompactStudio:
         self.root.mainloop()
 
 
+def speak_clipboard_once(config_path):
+    """Read clipboard once without showing a window, play fully, then exit."""
+    root = Tk()
+    root.withdraw()
+    try:
+        phrase = ""
+        import time
+        for attempt in range(8):
+            try:
+                phrase = root.clipboard_get()
+                break
+            except TclError:
+                if attempt < 7:
+                    time.sleep(0.05)
+    finally:
+        root.destroy()
+    if not isinstance(phrase, str) or not phrase.strip():
+        return 0
+    profile = read_profile(Path(config_path))
+    base = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "PortableVoiceClone" / "VoiceData"
+    lib = Library(base)
+    engine = PocketEngine(lib)
+    voice = {"id": "personalized", "name": profile["name"],
+             "reference": str(profile["voice_path"])}
+    config = {"preset": "Balanced", "speed": 1.0, "pitch": 0.0,
+              "stability": 50, "clarity": 0, "language": profile["lang"],
+              "safe_mode": True}
+    stop = threading.Event()
+    audio, rate = engine.synthesize(phrase, voice, config,
+                                    status=lambda _: None, stop=stop)
+    if len(audio):
+        sd.play(np.asarray(audio, dtype=np.float32), int(rate), blocking=True)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file")
+    parser.add_argument("--studio", action="store_true", help="Explicitly open the optional editor")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
     if args.self_test:
@@ -569,8 +605,10 @@ def main(argv=None):
         return 0
     if not args.config_file:
         raise SystemExit("A personalized voice profile is required. Export an EXE from the website or desktop suite.")
-    CompactStudio(args.config_file).run()
-    return 0
+    if args.studio:
+        CompactStudio(args.config_file).run()
+        return 0
+    return speak_clipboard_once(args.config_file)
 
 
 if __name__ == "__main__":
